@@ -1,16 +1,24 @@
 {
   "id": "caso_001",
-  "titulo": "Caso de argumentación jurídica básica",
-  "enunciado": "Un estudiante debe analizar si un contrato verbal tiene validez en una situación concreta...",
+  "titulo": "Caso simulado de coherencia argumentativa",
+  "curso": "Lógica Jurídica UPAO",
+  "nivel": "Inicial",
+  "enunciado": "Una estudiante afirma que un contrato verbal debe considerarse válido porque ambas partes mostraron intención de obligarse. Sin embargo, la otra parte niega haber aceptado condiciones concretas. Analiza el caso y sustenta tu postura con lógica jurídica.",
   "contexto": [
-    "Norma o regla jurídica 1",
-    "Norma o regla jurídica 2",
-    "Antecedente o caso simulado"
+    "Existe un acuerdo verbal entre dos personas sobre la prestación de un servicio.",
+    "Una de las partes sostiene que el contrato es válido por la intención manifestada.",
+    "La otra parte indica que no hubo aceptación expresa de condiciones esenciales."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
   ],
   "criterios_evaluacion": [
-    "Estructura lógica",
-    "Relevancia del contenido",
-    "Consistencia del razonamiento",
-    "Cohesión discursiva"
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
   ]
 }

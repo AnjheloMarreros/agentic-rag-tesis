@@ -2,8 +2,8 @@ fastapi
 uvicorn
 python-dotenv
 pydantic
-chromadb
-sentence-transformers
-langchain
-langgraph
+#chromadb
+#sentence-transformers
+#langchain
+#langgraph
 pypdf
