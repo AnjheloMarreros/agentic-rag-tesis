@@ -1,0 +1,16 @@
+{
+  "id": "caso_001",
+  "titulo": "Caso de argumentación jurídica básica",
+  "enunciado": "Un estudiante debe analizar si un contrato verbal tiene validez en una situación concreta...",
+  "contexto": [
+    "Norma o regla jurídica 1",
+    "Norma o regla jurídica 2",
+    "Antecedente o caso simulado"
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica",
+    "Relevancia del contenido",
+    "Consistencia del razonamiento",
+    "Cohesión discursiva"
+  ]
+}
