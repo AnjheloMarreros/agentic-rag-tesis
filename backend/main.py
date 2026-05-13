@@ -6,11 +6,13 @@ from backend.services.preprocess import normalizar_texto
 from backend.services.feedback import generar_retroalimentacion
 from backend.services.logs import registrar_evento
 from backend.services.retrieval import recuperar_contexto
+from backend.services.rag_engine import evaluar_respuesta_con_rag
+
 
 app = FastAPI(
     title="Agentic RAG Tesis MVP",
-    version="0.2.0",
-    description="Backend con casos simulados, retroalimentación básica y búsqueda vectorial."
+    version="0.3.0",
+    description="Backend con casos simulados, retroalimentación básica, búsqueda vectorial y RAG básico."
 )
 
 
@@ -23,7 +25,12 @@ class RespuestaEstudiante(BaseModel):
 def raiz():
     return {
         "mensaje": "API funcionando correctamente",
-        "endpoints": ["/caso/caso_001", "/evaluar", "/buscar"],
+        "endpoints": [
+            "/caso/caso_001",
+            "/evaluar",
+            "/buscar",
+            "/evaluar-rag"
+        ],
         "docs": "/docs"
     }
 
@@ -42,7 +49,7 @@ def evaluar_respuesta(payload: RespuestaEstudiante):
     feedback = generar_retroalimentacion(texto_limpio)
 
     registrar_evento(
-        "evaluacion",
+        "evaluacion_basica",
         {
             "caso_id": payload.caso_id,
             "longitud_respuesta": len(texto_limpio)
@@ -52,7 +59,8 @@ def evaluar_respuesta(payload: RespuestaEstudiante):
     return {
         "caso_id": payload.caso_id,
         "respuesta_limpia": texto_limpio,
-        "retroalimentacion": feedback
+        "retroalimentacion": feedback,
+        "modo": "reglas básicas"
     }
 
 
@@ -60,5 +68,18 @@ def evaluar_respuesta(payload: RespuestaEstudiante):
 def buscar(consulta: str = Query(..., min_length=3), n: int = 3):
     try:
         return recuperar_contexto(consulta, n)
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
+
+
+@app.post("/evaluar-rag")
+def evaluar_rag(payload: RespuestaEstudiante):
+    try:
+        return evaluar_respuesta_con_rag(
+            caso_id=payload.caso_id,
+            respuesta=payload.respuesta
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error))
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
