@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from pydantic import BaseModel
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import Optional
 
 from backend.services.case_loader import cargar_caso
 from backend.services.preprocess import normalizar_texto, extraer_texto_pdf
@@ -10,6 +11,7 @@ from backend.services.logs import registrar_evento
 from backend.services.retrieval import recuperar_contexto
 from backend.services.rag_engine import evaluar_respuesta_con_rag
 from backend.services.audio_handler import transcribir_audio
+from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
 
 
 app = FastAPI(
@@ -172,3 +174,55 @@ async def evaluar_entrada(
     finally:
         if temp_path.exists():
             temp_path.unlink()
+            
+@app.post("/evaluar-langgraph")
+async def evaluar_langgraph(
+    caso_id: str = Form("caso_001"),
+    tipo_entrada: str = Form(...),
+    texto: str = Form(""),
+    #archivo_pdf: UploadFile | None = File(None),
+    #archivo_audio: UploadFile | None = File(None)
+    archivo_pdf: Optional[UploadFile] | None = File(None),
+    archivo_audio: Optional[UploadFile] | None = File(None)
+):
+    tipo_entrada = tipo_entrada.lower().strip()
+
+    ruta_pdf = ""
+    ruta_audio = ""
+
+    if tipo_entrada == "pdf":
+        if archivo_pdf is None:
+            raise HTTPException(status_code=400, detail="Debes subir un PDF.")
+        suffix = Path(archivo_pdf.filename).suffix or ".pdf"
+        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_file.write(await archivo_pdf.read())
+            ruta_pdf = temp_file.name
+
+    elif tipo_entrada == "audio":
+        if archivo_audio is None:
+            raise HTTPException(status_code=400, detail="Debes subir un audio.")
+        suffix = Path(archivo_audio.filename).suffix or ".mp3"
+        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_file.write(await archivo_audio.read())
+            ruta_audio = temp_file.name
+
+    elif tipo_entrada == "texto":
+        texto = normalizar_texto(texto)
+        if not texto:
+            raise HTTPException(status_code=400, detail="Debes escribir texto.")
+    else:
+        raise HTTPException(status_code=400, detail="tipo_entrada inválido.")
+
+    try:
+        return ejecutar_evaluacion_langgraph(
+            caso_id=caso_id,
+            tipo_entrada=tipo_entrada,
+            texto=texto,
+            ruta_pdf=ruta_pdf,
+            ruta_audio=ruta_audio
+        )
+    finally:
+        if ruta_pdf and Path(ruta_pdf).exists():
+            Path(ruta_pdf).unlink()
+        if ruta_audio and Path(ruta_audio).exists():
+            Path(ruta_audio).unlink()
