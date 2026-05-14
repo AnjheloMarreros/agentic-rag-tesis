@@ -1,0 +1,21 @@
+{
+  "id": "caso_029",
+  "titulo": "Caso 29",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Una minera pierde su petitorio minero porque el diario oficial 'El Peruano' cometió un error en las coordenadas al publicar su cartel de aviso. La administración declara el 'abandono' del trámite. Sustenta si el error de un tercero debe perjudicar el derecho del administrado basándose en el principio de razonabilidad.",
+  "contexto": [
+    "La Corte Suprema aplicó el principio de razonabilidad, señalando que la administración no debe invalidar actos por errores no imputables al administrado que no afectan a terceros. Declarar el abandono por un error de imprenta es una medida excesivamente gravosa que se aparta de la justicia material."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "caso_027",
+  "titulo": "Caso 27",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un hombre demanda la nulidad por simulación de la venta de un predio que considera parte de su herencia, aun cuando su proceso de petición de herencia está en trámite. Los demandados alegan que él no tiene legitimidad porque aún no ha sido declarado heredero.",
+  "contexto": [
+    "La Sala Suprema aclaró que la legitimación activa comprende la pretensión de ser 'titular de un interés legítimo', independientemente de si la demanda es fundada al final. Al sustentar ser copropietario/heredero y verse perjudicado por la transferencia, el demandante sí tiene interés para cuestionar el acto jurídico presuntamente simulado."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

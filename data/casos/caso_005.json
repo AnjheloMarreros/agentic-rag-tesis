@@ -1,0 +1,21 @@
+{
+  "id": "caso_005",
+  "titulo": "Caso 5",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Una empresa farmacéutica impugna la denegatoria de una patente de invención porque no se le notificó un Informe Técnico determinante emitido durante el procedimiento administrativo. Analiza el derecho de defensa frente a la incorporación de nuevos argumentos técnicos por parte de la administración.",
+  "contexto": [
+    "La controversia gira en torno a la obligación de la Oficina Nacional de notificar informes que contengan argumentos nuevos. El fallo determinó que estos informes son medios de prueba y deben ponerse en conocimiento del administrado para garantizar su derecho de defensa e impugnación (Ley 27444)."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

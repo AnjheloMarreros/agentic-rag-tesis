@@ -1,0 +1,21 @@
+{
+  "id": "caso_039",
+  "titulo": "Caso 39",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Una eléctrica cuestiona que se le imponga usar la tasa de interés del 12% fijada por la Ley de Concesiones Eléctricas para los cargos de reposición de medidores a usuarios. Alega que debería aplicarse la tasa legal del BCR, que es menor. Analiza si la ley de concesiones regula solo la relación con el Estado o también con el usuario final.",
+  "contexto": [
+    "La Corte Suprema determinó que el artículo 79 de la Ley de Concesiones Eléctricas (D.Ley 25844) no distingue entre relaciones Estado-concesionario y concesionario-usuario. Al ser la conexión eléctrica parte de una tarifa de servicio público regulada, la tasa de actualización del 12% es la aplicable por sobre el Código Civil."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

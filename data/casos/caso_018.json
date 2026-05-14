@@ -1,0 +1,21 @@
+{
+  "id": "caso_018",
+  "titulo": "Caso 18",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un hombre impugna su reconocimiento de paternidad presentando una prueba de ADN privada que lo excluye. El juez de primera instancia inaplica el plazo legal de 90 días para impugnar. Sin embargo, se cuestiona si una sola prueba de ADN privada es suficiente para anular un vínculo filiatorio sin una prueba de oficio.",
+  "contexto": [
+    "La Sala Suprema desaprobó la inaplicación del plazo legal porque consideró que, antes de romper el vínculo paterno-filial (lo que dejaría al niño desamparado), el juez debió ordenar de oficio una nueva prueba de ADN para tener certeza absoluta y proteger el interés superior del niño."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "caso_033",
+  "titulo": "Caso 33",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "El MTC resuelve un contrato de concesión de radiodifusión por falta de pago de tasas durante dos años. La empresa sostiene que el plazo para el pago aún no había vencido según su interpretación del reglamento. Analiza el deber de motivación suficiente en temas de plazos administrativos de caducidad.",
+  "contexto": [
+    "La Corte Suprema declaró fundada la casación porque la Sala Superior no justificó por qué el cómputo de mora se realizaba desde una fecha determinada. Al ser una norma que restringe derechos, su interpretación debe ser restrictiva y la decisión debe contar con una motivación lógica y clara (art. 139 Const.)."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

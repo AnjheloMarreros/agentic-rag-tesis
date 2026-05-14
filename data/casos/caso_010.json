@@ -1,0 +1,21 @@
+{
+  "id": "caso_010",
+  "titulo": "Caso 10",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Una asociación pesquera impugna un Decreto Supremo que establece zonas de reserva para pesca, alegando que no fue prepublicado y que carece de sustento científico. Evalúa los límites de la potestad reglamentaria del Ministerio de la Producción en la gestión de recursos hidrobiológicos.",
+  "contexto": [
+    "La Sala Suprema analizó la facultad del Ministerio para determinar zonas de pesca, concluyendo que esta debe estar limitada por exigencias legales de sustento científico y factores socioeconómicos. Se determinó que, aunque la prepublicación era impracticable por plazos judiciales, el decreto excedió los límites al no cumplir con la finalidad de preservación y explotación racional de los recursos."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

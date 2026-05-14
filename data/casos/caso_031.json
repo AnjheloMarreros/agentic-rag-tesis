@@ -1,0 +1,21 @@
+{
+  "id": "caso_031",
+  "titulo": "Caso 31",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Una empresa eléctrica sufre un corte de servicio por la tala de árboles realizada por terceros. Informa del hecho después de las 48 horas y solicita que se califique como 'fuerza mayor' para evitar sanciones. Analiza la jerarquía normativa entre leyes y directivas técnicas de organismos supervisores.",
+  "contexto": [
+    "La Corte determinó que, según la jerarquía normativa (art. 51 Const.), el Decreto Ley N° 25844 prevalece sobre directivas técnicas de Osinergmin. Quien busque la calificación de fuerza mayor debe cumplir estrictamente con el aviso dentro de las 48 horas de ocurrido el evento conforme a la ley de concesiones eléctricas."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

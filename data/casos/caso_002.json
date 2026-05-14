@@ -1,0 +1,21 @@
+{
+  "id": "caso_002",
+  "titulo": "Caso 2",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Los herederos de un hombre fallecido solicitan la nulidad de su segundo matrimonio, alegando que este ya estaba casado al momento de contraer nupcias con la demandada. Analiza si los herederos tienen legitimidad para accionar pese a que el Código Civil califica esta acción como personalísima.",
+  "contexto": [
+    "El juez de primera instancia declaró improcedente la demanda basándose en el artículo 278 del Código Civil, que establece que la acción de nulidad de matrimonio no se transmite a los herederos. Sin embargo, la Sala Suprema aplicó el control difuso para inaplicar dicho artículo, argumentando que impedir la acción vulneraría el derecho constitucional a la propiedad y a la herencia (art. 2, inciso 16), ya que los herederos buscan proteger su patrimonio sucesorio frente a una presunta cónyuge que detenta bienes del causante."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "caso_020",
+  "titulo": "Caso 20",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Una madre vende un predio rural a su hijo. Un tercero demanda la nulidad de esa venta alegando una 'simulación absoluta' debido a la relación familiar y la falta de acreditación del pago. Analiza si el parentesco y la ausencia de recibos de pago bastan para anular un acto jurídico por simulación.",
+  "contexto": [
+    "La Sala Suprema determinó que la relación familiar por sí sola no es indicio suficiente de simulación absoluta. Debe probarse un acuerdo para celebrar un acto meramente aparente; la transferencia pudo ser incluso una donación indirecta, y el título inscrito goza de presunción de validez frente a terceros."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

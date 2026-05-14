@@ -1,0 +1,21 @@
+{
+  "id": "caso_015",
+  "titulo": "Caso 15",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "SUNAT cuestiona un descuento de $8,772 en una importación de maquinaria minera porque no figura en las facturas comerciales. La empresa alega que el descuento existe y se puede probar con otros documentos. Analiza cuándo es lícito iniciar el procedimiento de 'duda razonable' en aduanas.",
+  "contexto": [
+    "La Corte Suprema determinó que para iniciar el procedimiento de duda razonable no es estrictamente necesario presentar la factura si existen otros medios probatorios. La omisión del contrato de compraventa genera la duda, por lo que la administración debe valorar documentos alternativos para determinar el valor real de transacción."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

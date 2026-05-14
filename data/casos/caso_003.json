@@ -1,0 +1,21 @@
+{
+  "id": "caso_003",
+  "titulo": "Caso 3",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un laboratorio demanda a un competidor por competencia desleal tras la entrega de documentos a una entidad reguladora que vinculaban al demandante con la muerte de pacientes menores de edad. Sustenta si los entes reguladores deben ser considerados parte del ámbito de protección de la libre competencia.",
+  "contexto": [
+    "La controversia se centra en si la actuación de los entes reguladores forma parte del bien jurídico tutelable en procesos de competencia desleal. La Sala Suprema determinó que, según la exposición de motivos del D.Leg. 1044, el ámbito de protección se limita a proveedores, consumidores y el orden público económico, descartando a los entes reguladores como sujetos protegidos en este marco."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

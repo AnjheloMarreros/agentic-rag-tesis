@@ -1,0 +1,21 @@
+{
+  "id": "caso_021",
+  "titulo": "Caso 21",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Compañías de seguros impugnan un reglamento que establece responsabilidad solidaria entre las aseguradoras y las clínicas frente a los usuarios. Alegan que la responsabilidad solidaria solo puede nacer por ley o contrato, no por un Decreto Supremo.",
+  "contexto": [
+    "La Sala Suprema declaró ilegal el artículo 11 inciso h del D.S. N° 008-2010-SA. Se fundamentó en que el artículo 1183 del Código Civil exige que la solidaridad sea fijada por ley, y la Ley Marco de Aseguramiento Universal en Salud no preveía tal responsabilidad, por lo que el reglamento excedió sus límites y vulneró el principio de jerarquía normativa."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

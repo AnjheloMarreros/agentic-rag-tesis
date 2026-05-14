@@ -1,0 +1,21 @@
+{
+  "id": "caso_009",
+  "titulo": "Caso 9",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un padre solicita un régimen de visitas para su hijo de un año, pero la madre se opone alegando que él no cumple con la pensión alimenticia. Analiza si el derecho de visitas puede condicionarse legalmente al cumplimiento previo de la obligación alimentaria.",
+  "contexto": [
+    "La Sala Suprema analizó el artículo 88 del Código de los Niños y Adolescentes, que exige estar al día en las pensiones para solicitar visitas. Se determinó que el Estado debe proteger la subsistencia del menor, por lo que el demandante debe acreditar el cumplimiento alimentario para acceder al régimen, prevaleciendo el interés superior del niño."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

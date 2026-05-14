@@ -1,0 +1,21 @@
+{
+  "id": "caso_030",
+  "titulo": "Caso 30",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Una empresa de telecomunicaciones solicita instalar postes y cables aéreos. La municipalidad no responde en plazo y la empresa invoca el Silencio Administrativo Positivo. La entidad se opone alegando que hay una afectación al 'interés público' y al medio ambiente. Define los criterios para que opere el silencio negativo por interés público.",
+  "contexto": [
+    "La Sala Suprema precisó que no basta alegar genéricamente el 'interés público' o la salud para aplicar el silencio negativo. Se requiere probar una afectación significativa y concreta a la comunidad; en el caso, la municipalidad no motivó adecuadamente dicha afectación, por lo que la sentencia fue anulada."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

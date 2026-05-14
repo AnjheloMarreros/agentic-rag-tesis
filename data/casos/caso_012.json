@@ -1,0 +1,21 @@
+{
+  "id": "caso_012",
+  "titulo": "Caso 12",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Ciudadanos presentan una acción popular contra una resolución que autoriza la inversión privada en la Isla San Lorenzo, alegando que es un bien de dominio público inalienable. Sustenta si una norma infralegal puede habilitar la concesión de bienes estratégicos para la defensa nacional.",
+  "contexto": [
+    "La Sala Suprema declaró fundada la demanda e inaplicó la Resolución Suprema N° 057-2009-EF. El fallo determinó que, al ser la isla un bien de dominio público involucrado con la seguridad nacional (jurisdicción de la Marina), no se puede ampliar el marco legal para su promoción privada mediante normas de rango infralegal que vulneren la jerarquía normativa y el artículo 73 de la Constitución."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

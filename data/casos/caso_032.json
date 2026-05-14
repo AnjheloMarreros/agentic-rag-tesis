@@ -1,0 +1,21 @@
+{
+  "id": "caso_032",
+  "titulo": "Caso 32",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un trabajador de una empresa contratista muere en un accidente dentro de una mina mientras realizaba obras de construcción civil. La minera alega que Osinergmin no puede sancionarla porque el fallecido no realizaba 'actividades mineras' sino de construcción. Determina el alcance de la competencia sancionadora en seguridad minera.",
+  "contexto": [
+    "La Sala Suprema concluyó que las obras civiles dentro de una unidad minera tienen 'fines mineros', por lo que el titular minero es responsable de garantizar las normas de seguridad y bienestar para cualquier trabajador en sus instalaciones. Por ello, Osinergmin sí tiene competencia para investigar y sancionar el incumplimiento."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}
