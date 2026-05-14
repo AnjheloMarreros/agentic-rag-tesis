@@ -4,7 +4,7 @@ python-dotenv
 pydantic
 chromadb
 sentence-transformers
-#langchain
-#langgraph
+langgraph
 pypdf
 python-multipart
+openai-whisper

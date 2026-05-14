@@ -4,18 +4,18 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from backend.services.case_loader import cargar_caso
-from backend.services.preprocess import normalizar_texto
+from backend.services.preprocess import normalizar_texto, extraer_texto_pdf
 from backend.services.feedback import generar_retroalimentacion
 from backend.services.logs import registrar_evento
 from backend.services.retrieval import recuperar_contexto
 from backend.services.rag_engine import evaluar_respuesta_con_rag
-from backend.services.input_handler import extraer_texto_pdf
+from backend.services.audio_handler import transcribir_audio
 
 
 app = FastAPI(
     title="Agentic RAG Tesis MVP",
-    version="0.4.0",
-    description="Backend con casos simulados, retroalimentación básica, búsqueda vectorial, RAG básico y entrada real de texto/PDF."
+    version="0.5.0",
+    description="Backend con casos simulados, PDF, audio, búsqueda vectorial y RAG básico."
 )
 
 
@@ -31,9 +31,9 @@ def raiz():
         "endpoints": [
             "/caso/caso_001",
             "/evaluar",
-            "/evaluar-entrada",
             "/buscar",
-            "/evaluar-rag"
+            "/evaluar-rag",
+            "/evaluar-entrada"
         ],
         "docs": "/docs"
     }
@@ -94,14 +94,15 @@ async def evaluar_entrada(
     caso_id: str = Form("caso_001"),
     tipo_entrada: str = Form(...),
     texto: str = Form(""),
-    archivo_pdf: UploadFile | None = File(None)
+    archivo_pdf: UploadFile | None = File(None),
+    archivo_audio: UploadFile | None = File(None)
 ):
     tipo_entrada = tipo_entrada.lower().strip()
 
-    if tipo_entrada not in ("texto", "pdf"):
+    if tipo_entrada not in ("texto", "pdf", "audio"):
         raise HTTPException(
             status_code=400,
-            detail="tipo_entrada debe ser 'texto' o 'pdf'."
+            detail="tipo_entrada debe ser 'texto', 'pdf' o 'audio'."
         )
 
     if tipo_entrada == "texto":
@@ -115,26 +116,55 @@ async def evaluar_entrada(
 
         return evaluar_respuesta_con_rag(caso_id=caso_id, respuesta=contenido)
 
-    if archivo_pdf is None:
+    if tipo_entrada == "pdf":
+        if archivo_pdf is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Debes subir un archivo PDF."
+            )
+
+        suffix = Path(archivo_pdf.filename).suffix or ".pdf"
+
+        with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_path = Path(temp_file.name)
+            contenido_bytes = await archivo_pdf.read()
+            temp_file.write(contenido_bytes)
+
+        try:
+            contenido = extraer_texto_pdf(temp_path)
+
+            if not contenido:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No se pudo extraer texto del PDF."
+                )
+
+            return evaluar_respuesta_con_rag(caso_id=caso_id, respuesta=contenido)
+
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+
+    if archivo_audio is None:
         raise HTTPException(
             status_code=400,
-            detail="Debes subir un archivo PDF."
+            detail="Debes subir un archivo de audio."
         )
 
-    suffix = Path(archivo_pdf.filename).suffix or ".pdf"
+    suffix = Path(archivo_audio.filename).suffix or ".mp3"
 
     with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
         temp_path = Path(temp_file.name)
-        contenido_bytes = await archivo_pdf.read()
+        contenido_bytes = await archivo_audio.read()
         temp_file.write(contenido_bytes)
 
     try:
-        contenido = extraer_texto_pdf(temp_path)
+        contenido = transcribir_audio(str(temp_path))
 
         if not contenido:
             raise HTTPException(
                 status_code=400,
-                detail="No se pudo extraer texto del PDF."
+                detail="No se pudo transcribir el audio."
             )
 
         return evaluar_respuesta_con_rag(caso_id=caso_id, respuesta=contenido)
