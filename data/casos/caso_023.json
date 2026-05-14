@@ -1,0 +1,21 @@
+{
+  "id": "caso_023",
+  "titulo": "Caso 23",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un joven de 19 años intenta robar un celular con violencia y es condenado. El juez inaplica la norma que prohíbe reducir la pena por 'responsabilidad restringida' (edad) en casos de robo agravado. Argumenta si esta exclusión legal es discriminatoria o si responde a la gravedad del delito.",
+  "contexto": [
+    "La Sala Suprema desaprobó la reducción de la pena. Argumentó que el artículo 22 del Código Penal permite al legislador establecer excepciones basadas en la naturaleza y gravedad de ciertos delitos, y que la reducción es una 'posibilidad' evaluable, no un derecho automático e igualitario para todos los supuestos de edad."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

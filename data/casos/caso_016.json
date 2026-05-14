@@ -1,0 +1,21 @@
+{
+  "id": "caso_016",
+  "titulo": "Caso 16",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un ciudadano de 83 años reclama el pago actualizado de bonos de la deuda agraria por un predio expropiado. Existe controversia sobre si la deuda debe actualizarse usando el Índice de Precios al Consumidor (IPC) o mediante la conversión a dólares americanos.",
+  "contexto": [
+    "La Sala Suprema aplicó los criterios vinculantes del Tribunal Constitucional (Exp. 00022-1996-PI/TC), estableciendo que la actualización debe hacerse convirtiendo el principal impago a dólares americanos a la fecha del primer cupón impago, más los intereses de los bonos del tesoro americano. Se rechazó el uso del IPC por considerarlo un error en el cálculo de actualización de los bonos agrarios."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

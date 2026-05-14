@@ -1,0 +1,21 @@
+{
+  "id": "caso_024",
+  "titulo": "Caso 24",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un sindicato demanda la inconstitucionalidad de los aportes obligatorios a la 'Derrama Judicial', alegando que vulnera la libertad de asociación y el derecho a la propiedad. Evalúa si el Estado puede imponer una asociación compulsiva con fines de previsión social para servidores públicos.",
+  "contexto": [
+    "La Sala Suprema declaró infundada la demanda. Estableció que es lícito crear formas de asociación compulsiva siempre que el fin sea el desarrollo de valores sociales relevantes, como proporcionar ayuda económica a los trabajadores ante contingencias de jubilación o invalidez, sin que ello signifique una vulneración a la autonomía personal."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

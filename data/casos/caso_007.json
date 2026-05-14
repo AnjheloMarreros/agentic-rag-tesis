@@ -1,0 +1,21 @@
+{
+  "id": "caso_007",
+  "titulo": "Caso 7",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Una mujer es condenada a seis años por tenencia ilegal de municiones tras reconocer el hecho. En segunda instancia, el juez reduce la pena a tres años aplicando control difuso, alegando desproporcionalidad. Argumenta si la tenencia de municiones debe equipararse en peligrosidad a la tenencia de armas.",
+  "contexto": [
+    "La Sala Suprema desaprobó la reducción de la pena, argumentando que el delito de tenencia ilegal de municiones (art. 279 C.P.) es tan peligroso como el de armas y que el marco punitivo general es conforme a la Constitución dada la naturaleza del bien jurídico protegido."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

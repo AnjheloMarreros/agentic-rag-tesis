@@ -1,0 +1,21 @@
+{
+  "id": "caso_006",
+  "titulo": "Caso 6",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un sentenciado solicita el beneficio de semilibertad mediante la redención de pena por trabajo o estudio. Se cuestiona la aplicación de una ley posterior que restringe estos beneficios. Sustenta la postura basada en el principio tempus regit actum en la ejecución penal.",
+  "contexto": [
+    "La Sala Suprema aprobó la inaplicación de la Primera Disposición Complementaria Final de la Ley N° 29604 por colisionar con el principio de seguridad jurídica. Se estableció que las normas de ejecución penal aplicables son las vigentes al momento de la petición de los beneficios penitenciarios."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

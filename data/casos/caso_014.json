@@ -1,0 +1,21 @@
+{
+  "id": "caso_014",
+  "titulo": "Caso 14",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un hombre interpone una demanda de impugnación de paternidad fuera de los plazos legales establecidos en el Código Civil. El tribunal debe decidir si los plazos de caducidad pueden ser un obstáculo para la preservación del derecho fundamental a la identidad del menor.",
+  "contexto": [
+    "Se aplicó control difuso para inaplicar los artículos 367, 396 y 404 del Código Civil. La Sala Suprema determinó que el derecho a la identidad, de rango constitucional y supranacional (Convención sobre los Derechos del Niño), prevalece sobre cualquier plazo de caducidad procesal."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

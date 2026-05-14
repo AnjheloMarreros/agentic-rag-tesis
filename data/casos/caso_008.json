@@ -1,0 +1,21 @@
+{
+  "id": "caso_008",
+  "titulo": "Caso 8",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un trabajador demanda el pago de beneficios sociales e indemnización por despido a la sucesión de su empleador. Se debate si el crédito laboral debe tener preferencia absoluta de pago incluso frente a deudas garantizadas, conforme a la prioridad constitucional del salario.",
+  "contexto": [
+    "La Sala Superior inaplicó el artículo 4 del D.Leg. N° 856 que limitaba la preferencia de los créditos laborales. La Suprema confirmó que lo dispuesto en dicha norma no puede obstaculizar el cumplimiento del artículo 24 de la Constitución, otorgando preferencia absoluta al derecho de remuneración y beneficios sociales."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "id": "caso_022",
+  "titulo": "Caso 22",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Un propietario demanda la reivindicación de su inmueble ocupado por su expareja y su hija menor con Síndrome de Down. La demandada alega que no tiene dónde vivir y que el demandante tiene deudas alimentarias. Analiza si el derecho de propiedad puede ceder ante el deber de asistencia familiar y protección especial al niño.",
+  "contexto": [
+    "La Corte Suprema determinó que la demandada posee un título posesorio legítimo derivado del deber de asistencia alimentaria del padre (art. 474 Código Civil), que incluye la habitación. Por tanto, la reivindicación no procede mientras persista la obligación de proveer sustento a la menor en condición de vulnerabilidad."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}

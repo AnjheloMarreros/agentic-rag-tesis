@@ -1,0 +1,21 @@
+{
+  "id": "caso_017",
+  "titulo": "Caso 17",
+  "curso": "Lógica Jurídica UPAO",
+  "enunciado": "Sedapal exige a una universidad el pago por el uso de agua subterránea. La universidad alega que este cobro es un tributo inconstitucional por falta de reserva de ley. Analiza si el pago por recursos naturales extraídos es un tributo o una retribución económica estatal.",
+  "contexto": [
+    "La Corte Suprema estableció que el pago por agua subterránea no es un tributo sino una retribución económica obligatoria basada en la explotación racional de un recurso natural del Estado. El cobro se justifica en la soberanía del Estado sobre los recursos y en el derecho fundamental al acceso equitativo al agua potable."
+  ],
+  "instrucciones": [
+    "Redacta tu respuesta con orden lógico.",
+    "Incluye premisas, conclusión y sustento jurídico.",
+    "Evita contradicciones internas.",
+    "Usa conectores argumentativos claros."
+  ],
+  "criterios_evaluacion": [
+    "Estructura lógica del argumento",
+    "Relevancia y pertinencia del contenido",
+    "Consistencia lógica del razonamiento",
+    "Cohesión y calidad discursiva"
+  ]
+}
