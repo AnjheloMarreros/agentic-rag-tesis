@@ -5,7 +5,8 @@ from tempfile import NamedTemporaryFile
 from typing import Optional
 
 from backend.services.case_loader import cargar_caso
-from backend.services.preprocess import normalizar_texto, extraer_texto_pdf
+#from backend.services.preprocess import normalizar_texto, extraer_texto_pdf
+from backend.services.input_handler import normalizar_texto, extraer_texto_pdf
 from backend.services.feedback import generar_retroalimentacion
 from backend.services.logs import registrar_evento
 from backend.services.retrieval import recuperar_contexto
