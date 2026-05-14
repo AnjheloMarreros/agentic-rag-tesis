@@ -3,7 +3,8 @@ from typing import Any, TypedDict
 from langgraph.graph import StateGraph, START, END
 
 from backend.services.case_loader import cargar_caso
-from backend.services.preprocess import normalizar_texto, extraer_texto_pdf
+#from backend.services.preprocess import normalizar_texto, extraer_texto_pdf
+from backend.services.input_handler import normalizar_texto, extraer_texto_pdf
 from backend.services.audio_handler import transcribir_audio
 from backend.services.retrieval import recuperar_contexto
 from backend.services.feedback import generar_retroalimentacion
