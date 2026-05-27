@@ -8,3 +8,7 @@ langgraph
 pypdf
 python-multipart
 openai-whisper
+
+## Dependencia para despliegue básico
+jinja2
+##plantilla que FastAPI usa normalmente para renderizar HTML

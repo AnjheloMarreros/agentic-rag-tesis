@@ -1,0 +1,24 @@
+{
+  "criterios": [
+    {
+      "clave": "estructura_logica",
+      "nombre": "Estructura lógica del argumento",
+      "peso": 0.25
+    },
+    {
+      "clave": "relevancia",
+      "nombre": "Relevancia y pertinencia del contenido",
+      "peso": 0.25
+    },
+    {
+      "clave": "consistencia",
+      "nombre": "Consistencia lógica del razonamiento",
+      "peso": 0.25
+    },
+    {
+      "clave": "cohesion",
+      "nombre": "Cohesión y calidad discursiva",
+      "peso": 0.25
+    }
+  ]
+}
