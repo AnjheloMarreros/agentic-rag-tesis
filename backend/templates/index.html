@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic RAG Jurídico</title>
+
+    <style>
+        body{
+            font-family: Arial, sans-serif;
+            margin: 40px auto;
+            max-width: 1000px;
+            padding: 0 16px;
+            color: #1f2937;
+        }
+
+        h1, h2, h3 {
+            margin-top: 0;
+        }
+
+        textarea{
+            width: 100%;
+            height: 200px;
+            box-sizing: border-box;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            font-family: inherit;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        select, input[type="file"]{
+            width: 100%;
+            box-sizing: border-box;
+            padding: 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            font-family: inherit;
+            font-size: 15px;
+            background: white;
+        }
+
+        .card{
+            border: 1px solid #e5e7eb;
+            border-radius: 14px;
+            padding: 20px;
+            margin-bottom: 20px;
+            background: #ffffff;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        }
+
+        button{
+            padding: 10px 16px;
+            margin-top: 12px;
+            cursor: pointer;
+            border: none;
+            border-radius: 10px;
+            background: #111827;
+            color: white;
+            font-size: 15px;
+        }
+
+        button:hover{
+            background: #1f2937;
+        }
+
+        pre{
+            white-space: pre-wrap;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #ddd;
+            font-size: 15px;
+            line-height: 1.6;
+            margin: 0;
+        }
+
+        label{
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 700;
+        }
+
+        .field{
+            margin-bottom: 14px;
+        }
+
+        .muted{
+            color: #6b7280;
+            font-size: 14px;
+        }
+
+        .hidden{
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+<h1>Aplicación Jurídica Agentic RAG</h1>
+<p class="muted">Selecciona un caso, responde por texto o audio y revisa la retroalimentación.</p>
+
+<div class="card">
+    <h2>Seleccionar caso</h2>
+
+    <div class="field">
+        <label for="casoSelect">Casos disponibles</label>
+        <select id="casoSelect"></select>
+    </div>
+
+    <button type="button" onclick="cargarCasoSeleccionado()">
+        Cargar caso
+    </button>
+</div>
+
+<div class="card">
+    <h2>Detalle del caso</h2>
+    <div id="detalleCaso" class="muted">Selecciona un caso para verlo aquí.</div>
+</div>
+
+<div class="card">
+    <h2>Responder caso</h2>
+
+    <div class="field">
+        <label for="tipoEntrada">Tipo de entrada</label>
+        <select id="tipoEntrada" onchange="actualizarVistaEntrada()">
+            <option value="texto">Texto</option>
+            <option value="audio">Audio</option>
+        </select>
+    </div>
+
+    <div id="entradaTexto" class="field">
+        <label for="respuestaTexto">Escribe tu respuesta</label>
+        <textarea id="respuestaTexto" placeholder="Redacta aquí tu argumento..."></textarea>
+    </div>
+
+    <div id="entradaAudio" class="field hidden">
+        <label for="archivoAudio">Sube tu audio</label>
+        <input type="file" id="archivoAudio" accept="audio/*">
+        <p class="muted">Por ahora se carga un archivo de audio. Más adelante puede ser dictado por voz.</p>
+    </div>
+
+    <button type="button" onclick="evaluar()">
+        Evaluar respuesta
+    </button>
+</div>
+
+<div class="card">
+    <h2>Retroalimentación</h2>
+    <pre id="resultado">Aún no hay evaluación.</pre>
+</div>
+
+<script>
+    async function cargarListaCasos(){
+        try {
+            const response = await fetch("/casos");
+            if (!response.ok) {
+                throw new Error("No se pudo cargar la lista de casos.");
+            }
+
+            const casos = await response.json();
+            const select = document.getElementById("casoSelect");
+            select.innerHTML = "";
+
+            casos.forEach(caso => {
+                const option = document.createElement("option");
+                option.value = caso.id;
+                option.textContent = `${caso.id} - ${caso.titulo}`;
+                select.appendChild(option);
+            });
+
+            if (casos.length > 0) {
+                await cargarCaso(casos[0].id);
+            } else {
+                document.getElementById("detalleCaso").textContent = "No hay casos disponibles.";
+            }
+        } catch (error) {
+            document.getElementById("detalleCaso").textContent = error.message;
+        }
+    }
+
+    async function cargarCaso(casoId){
+        try {
+            const response = await fetch(`/caso/${casoId}`);
+            if (!response.ok) {
+                throw new Error("No se pudo cargar el caso seleccionado.");
+            }
+
+            const caso = await response.json();
+            document.getElementById("casoSelect").value = caso.id;
+
+            const contextoHtml = Array.isArray(caso.contexto)
+                ? `<ul>${caso.contexto.map(x => `<li>${x}</li>`).join("")}</ul>`
+                : "<p class='muted'>Sin contexto disponible.</p>";
+
+            const instruccionesHtml = Array.isArray(caso.instrucciones)
+                ? `<ul>${caso.instrucciones.map(x => `<li>${x}</li>`).join("")}</ul>`
+                : "<p class='muted'>Sin instrucciones disponibles.</p>";
+
+            document.getElementById("detalleCaso").innerHTML = `
+                <h3>${caso.titulo || ""}</h3>
+                <p><strong>Curso:</strong> ${caso.curso || ""}</p>
+                <p><strong>Enunciado:</strong></p>
+                <p>${caso.enunciado || ""}</p>
+                <p><strong>Contexto:</strong></p>
+                ${contextoHtml}
+                <p><strong>Instrucciones:</strong></p>
+                ${instruccionesHtml}
+            `;
+        } catch (error) {
+            document.getElementById("detalleCaso").textContent = error.message;
+        }
+    }
+
+    async function cargarCasoSeleccionado(){
+        const casoId = document.getElementById("casoSelect").value;
+        if (!casoId) {
+            document.getElementById("detalleCaso").textContent = "No hay caso seleccionado.";
+            return;
+        }
+        await cargarCaso(casoId);
+    }
+
+    function actualizarVistaEntrada(){
+        const tipo = document.getElementById("tipoEntrada").value;
+        document.getElementById("entradaTexto").classList.toggle("hidden", tipo !== "texto");
+        document.getElementById("entradaAudio").classList.toggle("hidden", tipo !== "audio");
+    }
+
+    function formatearResultado(data){
+        const evaluacion = data?.evaluacion || {};
+        const retroalimentacion = data?.retroalimentacion || {};
+
+        let salida = "";
+
+        salida += "RETROALIMENTACIÓN GENERAL\n";
+        salida += "===========================\n\n";
+
+        if (retroalimentacion.resumen) {
+            salida += retroalimentacion.resumen + "\n\n";
+        }
+
+        if (retroalimentacion.estado) {
+            salida += `Estado: ${retroalimentacion.estado}\n\n`;
+        }
+
+        if (Array.isArray(retroalimentacion.observaciones) && retroalimentacion.observaciones.length > 0) {
+            salida += "Observaciones:\n";
+            retroalimentacion.observaciones.forEach(item => {
+                salida += `- ${item}\n`;
+            });
+            salida += "\n";
+        }
+
+        if (Array.isArray(retroalimentacion.recomendaciones) && retroalimentacion.recomendaciones.length > 0) {
+            salida += "Recomendaciones:\n";
+            retroalimentacion.recomendaciones.forEach(item => {
+                salida += `- ${item}\n`;
+            });
+            salida += "\n";
+        }
+
+        salida += "PUNTAJES\n";
+        salida += "===========================\n\n";
+
+        salida += `Puntaje total: ${evaluacion.puntaje_total ?? "N/D"}\n`;
+        salida += `Nivel global: ${evaluacion.nivel_global ?? "N/D"}\n`;
+
+        if (evaluacion.resumen) {
+            salida += `Resumen: ${evaluacion.resumen}\n\n`;
+        }
+
+        if (Array.isArray(evaluacion.criterios) && evaluacion.criterios.length > 0) {
+            salida += "DETALLE POR CRITERIO\n";
+            salida += "---------------------------\n\n";
+
+            evaluacion.criterios.forEach((criterio, index) => {
+                salida += `${index + 1}. ${criterio.nombre || criterio.clave || "Criterio"}\n`;
+                salida += `   Puntaje: ${criterio.puntaje ?? "N/D"}\n`;
+                salida += `   Nivel: ${criterio.nivel ?? "N/D"}\n`;
+
+                if (criterio.observacion) {
+                    salida += `   Observación: ${criterio.observacion}\n`;
+                }
+
+                if (criterio.recomendacion) {
+                    salida += `   Recomendación: ${criterio.recomendacion}\n`;
+                }
+
+                salida += "\n";
+            });
+        }
+
+        if (Array.isArray(evaluacion.recomendaciones_generales) && evaluacion.recomendaciones_generales.length > 0) {
+            salida += "RECOMENDACIONES GENERALES\n";
+            salida += "---------------------------\n\n";
+
+            evaluacion.recomendaciones_generales.forEach(item => {
+                salida += `- ${item}\n`;
+            });
+
+            salida += "\n";
+        }
+
+        return salida.trim();
+    }
+
+    async function evaluar(){
+        const tipo = document.getElementById("tipoEntrada").value;
+        const casoId = document.getElementById("casoSelect").value;
+        const resultado = document.getElementById("resultado");
+
+        const formData = new FormData();
+        formData.append("caso_id", casoId);
+        formData.append("tipo_entrada", tipo);
+
+        if (tipo === "texto") {
+            formData.append(
+                "texto",
+                document.getElementById("respuestaTexto").value
+            );
+        } else {
+            const archivo = document.getElementById("archivoAudio").files[0];
+
+            if (!archivo) {
+                resultado.textContent = "Debes seleccionar un archivo de audio.";
+                return;
+            }
+
+            formData.append("archivo_audio", archivo);
+        }
+
+        resultado.textContent = "Procesando...";
+
+        try {
+            const response = await fetch("/evaluar-langgraph", {
+                method: "POST",
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                const mensaje = data?.detail || "Ocurrió un error al evaluar la respuesta.";
+                resultado.textContent = mensaje;
+                return;
+            }
+
+            resultado.textContent = formatearResultado(data);
+        } catch (error) {
+            resultado.textContent = "Error de conexión: " + error.message;
+        }
+    }
+
+    document.addEventListener("DOMContentLoaded", async () => {
+        await cargarListaCasos();
+        actualizarVistaEntrada();
+    });
+</script>
+
+</body>
+</html>

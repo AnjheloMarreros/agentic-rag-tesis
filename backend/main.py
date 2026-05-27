@@ -1,11 +1,16 @@
+# Despliegue básico para evaluación ###############################
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+from fastapi import Request
+###################################################################
+
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from pydantic import BaseModel
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Optional
 
-from backend.services.case_loader import cargar_caso
-#from backend.services.preprocess import normalizar_texto, extraer_texto_pdf
+from backend.services.case_loader import cargar_caso, listar_casos
 from backend.services.input_handler import normalizar_texto, extraer_texto_pdf
 from backend.services.feedback import generar_retroalimentacion
 from backend.services.logs import registrar_evento
@@ -18,8 +23,18 @@ from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
 app = FastAPI(
     title="Agentic RAG Tesis MVP",
     version="0.5.0",
-    description="Backend con casos simulados, PDF, audio, búsqueda vectorial y RAG básico."
+    description="Backend con casos simulados, texto, audio, búsqueda vectorial y RAG básico."
 )
+
+
+# Despliegue básico para evaluación ###############################
+# En caso no funcione aquí, va dentro de app = FastAPI(
+BASE_DIR = Path(__file__).resolve().parent
+
+templates = Jinja2Templates(
+    directory=str(BASE_DIR / "templates")
+)
+###################################################################
 
 
 class RespuestaEstudiante(BaseModel):
@@ -27,19 +42,37 @@ class RespuestaEstudiante(BaseModel):
     respuesta: str
 
 
-@app.get("/")
-def raiz():
-    return {
-        "mensaje": "API funcionando correctamente",
-        "endpoints": [
-            "/caso/caso_001",
-            "/evaluar",
-            "/buscar",
-            "/evaluar-rag",
-            "/evaluar-entrada"
-        ],
-        "docs": "/docs"
-    }
+# Despliegue básico para evaluación ###############################
+@app.get("/", response_class=HTMLResponse)
+def raiz(request: Request):
+
+    return templates.TemplateResponse(
+        request=request,
+        name="index.html",
+        context={
+            "request": request
+        }
+    )
+
+@app.get("/casos")
+def obtener_casos():
+    return listar_casos()
+###################################################################
+
+
+#@app.get("/")
+#def raiz():
+#    return {
+#        "mensaje": "API funcionando correctamente",
+#        "endpoints": [
+#            "/caso/caso_001",
+#            "/evaluar",
+#            "/buscar",
+#            "/evaluar-rag",
+#            "/evaluar-entrada"
+#        ],
+#        "docs": "/docs"
+#    }
 
 
 @app.get("/caso/{caso_id}")
