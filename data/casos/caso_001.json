@@ -1,8 +1,7 @@
 {
   "id": "caso_001",
-  "titulo": "Caso simulado de coherencia argumentativa",
+  "titulo": "Caso 1",
   "curso": "Lógica Jurídica UPAO",
-  "nivel": "Inicial",
   "enunciado": "Una estudiante afirma que un contrato verbal debe considerarse válido porque ambas partes mostraron intención de obligarse. Sin embargo, la otra parte niega haber aceptado condiciones concretas. Analiza el caso y sustenta tu postura con lógica jurídica.",
   "contexto": [
     "Existe un acuerdo verbal entre dos personas sobre la prestación de un servicio.",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from langgraph.graph import END, START, StateGraph
+from langchain_core.runnables import RunnableLambda
 
 from backend.services.audio_handler import transcribir_audio
 from backend.services.case_loader import cargar_caso
@@ -31,6 +31,12 @@ class EvaluacionState(TypedDict, total=False):
     evaluacion: dict[str, Any]
     retroalimentacion: dict[str, Any]
     resultado_final: dict[str, Any]
+
+
+def _merge_state(state: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    nuevo = dict(state)
+    nuevo.update(updates)
+    return nuevo
 
 
 def _float_safe(valor: Any, default: float = 0.0) -> float:
@@ -156,12 +162,12 @@ def procesar_entrada(state: EvaluacionState) -> EvaluacionState:
     if not texto:
         raise ValueError("No se pudo obtener texto válido desde la entrada.")
 
-    return {"texto_procesado": texto}
+    return _merge_state(state, {"texto_procesado": texto})
 
 
 def cargar_caso_node(state: EvaluacionState) -> EvaluacionState:
     caso = cargar_caso(state["caso_id"])
-    return {"caso": caso}
+    return _merge_state(state, {"caso": caso})
 
 
 def recuperar_contexto_node(state: EvaluacionState) -> EvaluacionState:
@@ -196,7 +202,7 @@ def recuperar_contexto_node(state: EvaluacionState) -> EvaluacionState:
             }
         )
 
-    return {"contexto_recuperado": fuentes}
+    return _merge_state(state, {"contexto_recuperado": fuentes})
 
 
 def evaluar_semantica_node(state: EvaluacionState) -> EvaluacionState:
@@ -210,7 +216,7 @@ def evaluar_semantica_node(state: EvaluacionState) -> EvaluacionState:
         contexto_recuperado=contexto,
     )
 
-    return {"evaluacion_semantica": evaluacion_semantica}
+    return _merge_state(state, {"evaluacion_semantica": evaluacion_semantica})
 
 
 def evaluar_rubrica_node(state: EvaluacionState) -> EvaluacionState:
@@ -227,7 +233,7 @@ def evaluar_rubrica_node(state: EvaluacionState) -> EvaluacionState:
         rubrica=rubrica,
     )
 
-    return {"evaluacion_rubrica": evaluacion_rubrica}
+    return _merge_state(state, {"evaluacion_rubrica": evaluacion_rubrica})
 
 
 def compilar_resultado_node(state: EvaluacionState) -> EvaluacionState:
@@ -265,9 +271,10 @@ def compilar_resultado_node(state: EvaluacionState) -> EvaluacionState:
     resultado["evaluacion_rubrica"] = evaluacion_rubrica
     resultado["evaluacion"] = evaluacion_consolidada
     resultado["retroalimentacion"] = retroalimentacion
+    resultado["modo"] = "LangChain + evaluación semántica"
 
     registrar_ejecucion_pipeline(
-        pipeline="langgraph",
+        pipeline="langchain",
         caso_id=state["caso_id"],
         tipo_entrada=state.get("tipo_entrada", "texto"),
         texto_procesado=state["texto_procesado"],
@@ -278,29 +285,20 @@ def compilar_resultado_node(state: EvaluacionState) -> EvaluacionState:
         resultado_final=resultado,
     )
 
-    return {"resultado_final": resultado}
+    return _merge_state(state, {"resultado_final": resultado})
 
 
-builder = StateGraph(EvaluacionState)
-builder.add_node("procesar_entrada", procesar_entrada)
-builder.add_node("cargar_caso", cargar_caso_node)
-builder.add_node("recuperar_contexto", recuperar_contexto_node)
-builder.add_node("evaluar_semantica", evaluar_semantica_node)
-builder.add_node("evaluar_rubrica", evaluar_rubrica_node)
-builder.add_node("compilar_resultado", compilar_resultado_node)
-
-builder.add_edge(START, "procesar_entrada")
-builder.add_edge("procesar_entrada", "cargar_caso")
-builder.add_edge("cargar_caso", "recuperar_contexto")
-builder.add_edge("recuperar_contexto", "evaluar_semantica")
-builder.add_edge("evaluar_semantica", "evaluar_rubrica")
-builder.add_edge("evaluar_rubrica", "compilar_resultado")
-builder.add_edge("compilar_resultado", END)
-
-graph = builder.compile()
+pipeline = (
+    RunnableLambda(procesar_entrada)
+    | RunnableLambda(cargar_caso_node)
+    | RunnableLambda(recuperar_contexto_node)
+    | RunnableLambda(evaluar_semantica_node)
+    | RunnableLambda(evaluar_rubrica_node)
+    | RunnableLambda(compilar_resultado_node)
+)
 
 
-def ejecutar_evaluacion_langgraph(
+def ejecutar_evaluacion_langchain(
     caso_id: str,
     tipo_entrada: str,
     texto: str = "",
@@ -313,5 +311,5 @@ def ejecutar_evaluacion_langgraph(
         "ruta_audio": ruta_audio,
     }
 
-    estado_final = graph.invoke(estado_inicial)
+    estado_final = pipeline.invoke(estado_inicial)
     return estado_final.get("resultado_final", estado_final)
