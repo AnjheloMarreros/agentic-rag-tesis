@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+from collections import Counter
 from functools import lru_cache
 from typing import Any
 import re
 import unicodedata
-from math import sqrt
 
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -65,6 +65,15 @@ TERMINOS_JURIDICOS = [
     "argumentación",
 ]
 
+STOPWORDS = {
+    "de", "la", "el", "los", "las", "un", "una", "unos", "unas", "y", "o", "u",
+    "a", "ante", "bajo", "con", "contra", "desde", "durante", "entre", "hacia",
+    "hasta", "para", "por", "segun", "según", "sin", "sobre", "tras", "del",
+    "al", "que", "se", "es", "son", "ser", "como", "más", "menos", "muy",
+    "en", "su", "sus", "le", "les", "lo", "ya", "no", "sí", "también",
+    "caso", "casos", "respuesta", "respuesta", "argumento", "argumentar",
+}
+
 
 @lru_cache(maxsize=1)
 def _modelo():
@@ -83,6 +92,14 @@ def _normalizar(texto: str) -> str:
 
 def _palabras(texto: str) -> list[str]:
     return [t for t in _normalizar(texto).split() if len(t) > 2]
+
+
+def _tokens_limpios(texto: str) -> list[str]:
+    texto = _normalizar(texto)
+    return [
+        t for t in re.split(r"\s+", texto)
+        if t and len(t) > 2 and t not in STOPWORDS
+    ]
 
 
 def _vector(texto: str):
@@ -153,16 +170,27 @@ def _top_fragmento(respuesta: str, contexto_recuperado: list[dict[str, Any]]) ->
     return mejor
 
 
-def _puntaje_desde_similitud(similitud: float) -> int:
-    if similitud >= 0.82:
-        return 5
-    if similitud >= 0.66:
-        return 4
-    if similitud >= 0.50:
-        return 3
-    if similitud >= 0.32:
-        return 2
-    return 1
+def _palabras_clave_caso(caso: dict[str, Any]) -> list[str]:
+    texto = " ".join([
+        str(caso.get("titulo", "")),
+        str(caso.get("enunciado", "")),
+        " ".join(caso.get("contexto", [])),
+        " ".join(caso.get("instrucciones", [])),
+    ])
+    tokens = _tokens_limpios(texto)
+
+    freq = Counter(tokens)
+    claves = [tok for tok, n in freq.items() if n >= 2 or len(tok) >= 6]
+    return list(dict.fromkeys(claves))
+
+
+def _indice_relevancia_lexica(respuesta: str, palabras_clave: list[str]) -> float:
+    resp = set(_tokens_limpios(respuesta))
+    keys = set(palabras_clave)
+    if not keys:
+        return 0.0
+    overlap = resp.intersection(keys)
+    return len(overlap) / len(keys)
 
 
 def evaluar_semantica(
@@ -194,16 +222,40 @@ def evaluar_semantica(
     similitud_caso = _coseno(vec_respuesta, vec_caso)
     similitud_contexto = _coseno(vec_respuesta, vec_contexto)
 
+    palabras_clave = _palabras_clave_caso(caso)
+    indice_lexico = _indice_relevancia_lexica(respuesta, palabras_clave)
+
+    indice_relevancia_caso = round(
+        (0.55 * max(similitud_caso, similitud_contexto)) + (0.45 * indice_lexico),
+        4
+    )
+
+    if indice_lexico < 0.10:
+        indice_relevancia_caso = min(indice_relevancia_caso, 0.15)
+    elif indice_lexico < 0.20:
+        indice_relevancia_caso = min(indice_relevancia_caso, 0.25)
+    elif indice_lexico < 0.30:
+        indice_relevancia_caso = min(indice_relevancia_caso, 0.35)
+
     terminos_juridicos = _contar_terminos_juridicos(respuesta)
     conectores = sum(1 for c in CONECTORES if c in _normalizar(respuesta))
     conclusion = _contiene_alguna(respuesta, MARCADORES_CONCLUSION)
     desconocimiento = _contiene_alguna(respuesta, FRASES_DESCONOCIMIENTO)
 
-    # 1) Pertinencia con el caso
-    score_caso = 1 + (similitud_caso * 3.0) + min(terminos_juridicos, 2) * 0.5
+    score_caso = 1 + (indice_relevancia_caso * 4.0)
+    score_contexto = 1 + ((max(similitud_contexto, indice_lexico)) * 4.0)
+
     if conclusion:
         score_caso += 0.25
+        score_contexto += 0.15
+
+    if terminos_juridicos > 0:
+        score_caso += min(terminos_juridicos, 2) * 0.15
+        score_contexto += min(terminos_juridicos, 2) * 0.15
+
     score_caso = _clamp(score_caso)
+    score_contexto = _clamp(score_contexto)
+
     obs_caso = (
         "La respuesta guarda relación semántica con el caso."
         if score_caso >= 4 else
@@ -215,11 +267,6 @@ def evaluar_semantica(
         "La respuesta está bien alineada con el caso."
     )
 
-    # 2) Sustento contextual
-    score_contexto = 1 + (similitud_contexto * 3.0) + min(terminos_juridicos, 2) * 0.5
-    if conectores >= 2:
-        score_contexto += 0.25
-    score_contexto = _clamp(score_contexto)
     obs_contexto = (
         "La respuesta se apoya en parte del contexto recuperado."
         if score_contexto >= 4 else
@@ -231,7 +278,6 @@ def evaluar_semantica(
         "El sustento contextual es adecuado."
     )
 
-    # 3) Profundidad argumentativa
     score_argumento = 1
     if n_palabras >= 20:
         score_argumento += 1
@@ -245,6 +291,7 @@ def evaluar_semantica(
         score_argumento += 1
     if desconocimiento and n_palabras < 12:
         score_argumento = 1
+
     score_argumento = _clamp(score_argumento)
     obs_argumento = (
         "La respuesta muestra un desarrollo argumentativo aceptable."
@@ -257,14 +304,13 @@ def evaluar_semantica(
         "El desarrollo argumentativo es sólido."
     )
 
-    # 4) Consistencia semántica
     inconsistencia_penalizacion = 0
     if desconocimiento and n_palabras < 12:
         inconsistencia_penalizacion += 2
     if "pero" in _normalizar(respuesta) and "sin embargo" not in _normalizar(respuesta):
         inconsistencia_penalizacion += 1
 
-    score_consistencia = 3 + (similitud_caso * 1.5) + (similitud_contexto * 1.0) - inconsistencia_penalizacion
+    score_consistencia = 3 + (similitud_caso * 1.0) + (similitud_contexto * 0.75) - inconsistencia_penalizacion
     score_consistencia = _clamp(score_consistencia)
 
     obs_consistencia = (
@@ -336,8 +382,11 @@ def evaluar_semantica(
         "resumen": f"Tu respuesta obtuvo {puntaje_total}% de coherencia semántica. El nivel global es {nivel_global}.",
         "similitud_caso": round(similitud_caso, 4),
         "similitud_contexto": round(similitud_contexto, 4),
+        "indice_relevancia_lexica": round(indice_lexico, 4),
+        "indice_relevancia_caso": round(indice_relevancia_caso, 4),
         "evidencia_principal": evidencia,
         "criterios": criterios,
         "observaciones": observaciones,
         "recomendaciones": recomendaciones,
+        "palabras_clave_caso": palabras_clave,
     }
