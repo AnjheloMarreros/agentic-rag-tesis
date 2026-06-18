@@ -1,14 +1,15 @@
 fastapi
-uvicorn
+uvicorn[standard]
 python-dotenv
 pydantic
 chromadb
 sentence-transformers
 langgraph
-pypdf
 python-multipart
 openai-whisper
-
-## Dependencia para despliegue básico
-jinja2
-##plantilla que FastAPI usa normalmente para renderizar HTML
+langchain-core
+langchain-community
+langchain-huggingface
+langchain-groq
+langchain-openai
+numpy

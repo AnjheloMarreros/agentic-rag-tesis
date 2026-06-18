@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, TypedDict
 
 from langchain_core.runnables import RunnableLambda
@@ -7,11 +8,7 @@ from langchain_core.runnables import RunnableLambda
 from backend.services.audio_handler import transcribir_audio
 from backend.services.case_loader import cargar_caso
 from backend.services.input_handler import normalizar_texto
-from backend.services.pipeline_contract import (
-    construir_resultado_final,
-    construir_retroalimentacion,
-    registrar_ejecucion_pipeline,
-)
+from backend.services.logs import registrar_evento
 from backend.services.retrieval import recuperar_contexto
 from backend.services.rubric_evaluator import evaluar_respuesta_con_rubrica
 from backend.services.rubric_loader import cargar_rubrica
@@ -23,6 +20,8 @@ class EvaluacionState(TypedDict, total=False):
     tipo_entrada: str
     texto: str
     ruta_audio: str
+    benchmark_id: str
+    sample_id: str
     texto_procesado: str
     caso: dict[str, Any]
     contexto_recuperado: list[dict[str, Any]]
@@ -149,6 +148,118 @@ def _construir_evaluacion_consolidada(
     }
 
 
+def _construir_retroalimentacion(
+    evaluacion_rubrica: dict[str, Any],
+    evaluacion_semantica: dict[str, Any],
+) -> dict[str, Any]:
+    observaciones = []
+    recomendaciones = []
+
+    for item in evaluacion_rubrica.get("criterios", []):
+        nombre = item.get("nombre", "Criterio")
+        observacion = item.get("observacion", "")
+        recomendacion = item.get("recomendacion", "")
+        if observacion:
+            observaciones.append(f"{nombre}: {observacion}")
+        if recomendacion:
+            recomendaciones.append(f"{nombre}: {recomendacion}")
+
+    for item in evaluacion_semantica.get("observaciones", []):
+        if item and item not in observaciones:
+            observaciones.append(item)
+
+    for item in evaluacion_semantica.get("recomendaciones", []):
+        if item and item not in recomendaciones:
+            recomendaciones.append(item)
+
+    if _float_safe(evaluacion_semantica.get("indice_relevancia_lexica", 0.0)) < 0.10:
+        observaciones.insert(
+            0,
+            "La respuesta parece poco alineada con el caso, aunque use términos jurídicos.",
+        )
+
+    return {
+        "estado": "evaluado",
+        "resumen": evaluacion_semantica.get("resumen", "") or evaluacion_rubrica.get("resumen", ""),
+        "observaciones": observaciones,
+        "recomendaciones": recomendaciones,
+    }
+
+
+def _construir_resultado_final(
+    state: EvaluacionState,
+    caso: dict[str, Any],
+    evaluacion_rubrica: dict[str, Any],
+    evaluacion_semantica: dict[str, Any],
+    contexto_recuperado: list[dict[str, Any]],
+) -> dict[str, Any]:
+    evaluacion_consolidada = _construir_evaluacion_consolidada(
+        evaluacion_rubrica=evaluacion_rubrica,
+        evaluacion_semantica=evaluacion_semantica,
+    )
+
+    retroalimentacion = _construir_retroalimentacion(
+        evaluacion_rubrica=evaluacion_rubrica,
+        evaluacion_semantica=evaluacion_semantica,
+    )
+
+    texto_caso = " ".join(
+        [
+            caso.get("titulo", ""),
+            caso.get("enunciado", ""),
+            " ".join(caso.get("contexto", []) or []),
+            " ".join(caso.get("instrucciones", []) or []),
+        ]
+    ).strip()
+
+    resultado = {
+        "caso_id": state["caso_id"],
+        "sample_id": state.get("sample_id", ""),
+        "benchmark_id": state.get("benchmark_id", ""),
+        "modo": "LangChain",
+        "pipeline": "langchain",
+        "tipo_entrada": state.get("tipo_entrada", "texto"),
+        "entrada": state.get("texto_procesado", ""),
+        "caso": caso,
+        "contexto_recuperado": contexto_recuperado,
+        "evaluacion_rubrica": evaluacion_rubrica,
+        "evaluacion_semantica": evaluacion_semantica,
+        "evaluacion": evaluacion_consolidada,
+        "retroalimentacion": retroalimentacion,
+        "texto_caso": texto_caso,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+    registrar_evento(
+        "evaluacion_langchain",
+        {
+            "benchmark_id": state.get("benchmark_id", ""),
+            "sample_id": state.get("sample_id", ""),
+            "pipeline": "langchain",
+            "caso_id": state["caso_id"],
+            "case_id": state["caso_id"],
+            "tipo_entrada": state.get("tipo_entrada", "texto"),
+            "user_input": texto_caso,
+            "response": state.get("texto_procesado", ""),
+            "retrieved_contexts": [
+                item.get("fragmento", "")
+                for item in contexto_recuperado
+                if isinstance(item, dict) and item.get("fragmento")
+            ],
+            "reference_contexts": caso.get("contexto", []),
+            "rubric_result": evaluacion_rubrica,
+            "semantic_result": evaluacion_semantica,
+            "evaluacion": evaluacion_consolidada,
+            "retroalimentacion": retroalimentacion,
+            "puntaje_total": evaluacion_consolidada.get("puntaje_total", 0.0),
+            "puntaje_semantico": evaluacion_semantica.get("puntaje_total", 0.0),
+            "fuentes_recuperadas": len(contexto_recuperado),
+        },
+    )
+
+    return resultado
+
+
 def procesar_entrada(state: EvaluacionState) -> EvaluacionState:
     tipo = state["tipo_entrada"].lower().strip()
 
@@ -242,47 +353,12 @@ def compilar_resultado_node(state: EvaluacionState) -> EvaluacionState:
     evaluacion_semantica = state.get("evaluacion_semantica", {})
     contexto_recuperado = state.get("contexto_recuperado", [])
 
-    retroalimentacion = construir_retroalimentacion(
-        evaluacion_rubrica,
-        evaluacion_semantica,
-    )
-
-    if _float_safe(evaluacion_semantica.get("indice_relevancia_lexica", 0.0)) < 0.10:
-        retroalimentacion.setdefault("alertas", [])
-        retroalimentacion["alertas"].append(
-            "La respuesta parece poco alineada con el caso, aunque use términos jurídicos."
-        )
-
-    resultado = construir_resultado_final(
-        caso_id=state["caso_id"],
-        tipo_entrada=state.get("tipo_entrada", "texto"),
+    resultado = _construir_resultado_final(
+        state=state,
         caso=caso,
-        texto_procesado=state["texto_procesado"],
-        evaluacion=evaluacion_rubrica,
-        evaluacion_semantica=evaluacion_semantica,
-        contexto_recuperado=contexto_recuperado,
-    )
-
-    evaluacion_consolidada = _construir_evaluacion_consolidada(
         evaluacion_rubrica=evaluacion_rubrica,
         evaluacion_semantica=evaluacion_semantica,
-    )
-
-    resultado["evaluacion_rubrica"] = evaluacion_rubrica
-    resultado["evaluacion"] = evaluacion_consolidada
-    resultado["retroalimentacion"] = retroalimentacion
-    resultado["modo"] = "LangChain + evaluación semántica"
-
-    registrar_ejecucion_pipeline(
-        pipeline="langchain",
-        caso_id=state["caso_id"],
-        tipo_entrada=state.get("tipo_entrada", "texto"),
-        texto_procesado=state["texto_procesado"],
-        caso=caso,
         contexto_recuperado=contexto_recuperado,
-        evaluacion=evaluacion_consolidada,
-        evaluacion_semantica=evaluacion_semantica,
-        resultado_final=resultado,
     )
 
     return _merge_state(state, {"resultado_final": resultado})
@@ -303,12 +379,16 @@ def ejecutar_evaluacion_langchain(
     tipo_entrada: str,
     texto: str = "",
     ruta_audio: str = "",
+    benchmark_id: str = "",
+    sample_id: str = "",
 ):
     estado_inicial: EvaluacionState = {
         "caso_id": caso_id,
         "tipo_entrada": tipo_entrada,
         "texto": texto,
         "ruta_audio": ruta_audio,
+        "benchmark_id": benchmark_id,
+        "sample_id": sample_id,
     }
 
     estado_final = pipeline.invoke(estado_inicial)

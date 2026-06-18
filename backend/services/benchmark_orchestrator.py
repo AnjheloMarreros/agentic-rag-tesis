@@ -10,15 +10,6 @@ from backend.services.langchain_bridge import ejecutar_evaluacion_langchain
 from backend.services.logs import registrar_evento
 
 
-def _float_safe(valor: Any, default: float = 0.0) -> float:
-    try:
-        if valor is None:
-            return default
-        return float(valor)
-    except Exception:
-        return default
-
-
 def _extraer_resumen(resultado: dict[str, Any]) -> dict[str, Any]:
     evaluacion = resultado.get("evaluacion", {}) if isinstance(resultado, dict) else {}
     semantica = resultado.get("evaluacion_semantica", {}) if isinstance(resultado, dict) else {}
@@ -56,8 +47,11 @@ def ejecutar_benchmark_dual(
     caso_id: str,
     tipo_entrada_original: str,
     texto_procesado: str,
+    benchmark_id: str | None = None,
+    sample_id: str | None = None,
 ) -> dict[str, Any]:
-    benchmark_id = f"bm_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}_{uuid4().hex[:8]}"
+    benchmark_id = benchmark_id or f"bm_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}_{uuid4().hex[:8]}"
+    sample_id = sample_id or f"{caso_id}_{uuid4().hex[:8]}"
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_langgraph = executor.submit(
@@ -68,6 +62,8 @@ def ejecutar_benchmark_dual(
             "texto",
             texto_procesado,
             "",
+            benchmark_id,
+            sample_id,
         )
         future_langchain = executor.submit(
             _ejecutar_seguro,
@@ -77,6 +73,8 @@ def ejecutar_benchmark_dual(
             "texto",
             texto_procesado,
             "",
+            benchmark_id,
+            sample_id,
         )
 
         resultado_langgraph = future_langgraph.result()
@@ -84,6 +82,7 @@ def ejecutar_benchmark_dual(
 
     payload = {
         "benchmark_id": benchmark_id,
+        "sample_id": sample_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "caso_id": caso_id,
         "tipo_entrada_original": tipo_entrada_original,
