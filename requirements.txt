@@ -5,11 +5,12 @@ pydantic
 chromadb
 sentence-transformers
 langgraph
-python-multipart
-openai-whisper
 langchain-core
 langchain-community
 langchain-huggingface
 langchain-groq
 langchain-openai
+ragas
+python-multipart
+openai-whisper
 numpy
