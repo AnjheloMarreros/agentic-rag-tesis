@@ -14,3 +14,4 @@ ragas
 python-multipart
 openai-whisper
 numpy
+pypdf
