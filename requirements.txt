@@ -6,7 +6,7 @@ chromadb
 sentence-transformers
 langgraph
 langchain-core
-langchain-community
+langchain-community<0.4.2
 langchain-huggingface
 langchain-groq
 ragas<0.4
