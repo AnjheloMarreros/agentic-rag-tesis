@@ -13,8 +13,6 @@ from backend.services.case_loader import cargar_caso, listar_casos
 from backend.services.feedback import generar_retroalimentacion
 from backend.services.input_handler import normalizar_texto
 from backend.services.logs import registrar_evento
-from backend.services.rag_engine import evaluar_respuesta_con_rag
-from backend.services.retrieval import recuperar_contexto
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -132,6 +130,7 @@ def evaluar_respuesta(payload: RespuestaEstudiante):
 @app.get("/buscar")
 def buscar(consulta: str = Query(..., min_length=3), n: int = 3):
     try:
+        from backend.services.retrieval import recuperar_contexto
         return recuperar_contexto(consulta, n)
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
@@ -140,6 +139,7 @@ def buscar(consulta: str = Query(..., min_length=3), n: int = 3):
 @app.post("/evaluar-rag")
 def evaluar_rag(payload: RespuestaEstudiante):
     try:
+        from backend.services.rag_engine import evaluar_respuesta_con_rag
         return evaluar_respuesta_con_rag(
             caso_id=payload.caso_id,
             respuesta=payload.respuesta,
@@ -428,7 +428,6 @@ async def evaluar_benchmark(
 def api_ragas_live():
     try:
         from backend.services.ragas_runner import run_ragas_live_evaluation
-
         return run_ragas_live_evaluation()
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
@@ -437,12 +436,10 @@ def api_ragas_live():
 @app.get("/api/ragas/benchmark-daily")
 def api_ragas_benchmark_daily_start():
     from backend.services.benchmark_ragas_runner import start_daily_benchmark_job
-
     return start_daily_benchmark_job()
 
 
 @app.get("/api/ragas/benchmark-daily/{job_id}")
 def api_ragas_benchmark_daily_status(job_id: str):
     from backend.services.benchmark_ragas_runner import get_daily_benchmark_job
-
     return get_daily_benchmark_job(job_id)
