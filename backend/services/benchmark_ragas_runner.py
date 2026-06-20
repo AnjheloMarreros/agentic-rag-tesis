@@ -214,11 +214,17 @@ def _build_models():
 #        faithfulness,
 #        answer_relevancy,
 #    ]
+
+#def _build_metric_list(llm: Any, embeddings: Any):
+#    return [
+#        Faithfulness(llm=llm),
+#        AnswerRelevancy(llm=llm, embeddings=embeddings),
+#    ]
+
 def _build_metric_list(llm: Any, embeddings: Any):
-    return [
-        Faithfulness(llm=llm),
-        AnswerRelevancy(llm=llm, embeddings=embeddings),
-    ]
+    faith_metric = Faithfulness(llm=llm)
+    answer_metric = AnswerRelevancy(llm=llm)
+    return [faith_metric, answer_metric]
 
 
 def _evaluate_dataset(dataset, metrics, llm, embeddings):

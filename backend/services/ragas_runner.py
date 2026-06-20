@@ -65,10 +65,10 @@ def _mean_safe(values: list[Any]) -> float:
 
 def _build_models():
     groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
-    groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+    groq_model = os.getenv("GROQ_MODEL", os.getenv("RAGAS_MODEL", "llama-3.3-70b-versatile")).strip()
     embedding_model = os.getenv(
         "RAGAS_EMBEDDING_MODEL",
-        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
     ).strip()
 
     if not groq_api_key:
@@ -100,39 +100,14 @@ def _build_models():
     return LangchainLLMWrapper(base_llm), LangchainEmbeddingsWrapper(base_embeddings)
 
 
-def _load_metric_symbols():
-    try:
-        from ragas.metrics.collections import Faithfulness, AnswerRelevancy
-        return Faithfulness, AnswerRelevancy
-    except Exception:
-        from ragas.metrics import faithfulness, answer_relevancy
-        return faithfulness, answer_relevancy
-
-
-def _metric_instance(symbol: Any):
-    if isinstance(symbol, type):
-        return symbol()
-    return symbol
-
-
 def _build_metric_list(llm, embeddings):
-    Faithfulness, AnswerRelevancy = _load_metric_symbols()
+    from ragas.metrics.collections import Faithfulness, AnswerRelevancy
 
-    faithfulness_metric = _metric_instance(Faithfulness)
-    answer_relevancy_metric = _metric_instance(AnswerRelevancy)
+    faithfulness_metric = Faithfulness(llm=llm)
+    answer_relevancy_metric = AnswerRelevancy(llm=llm)
 
-    try:
-        if hasattr(faithfulness_metric, "llm"):
-            faithfulness_metric.llm = llm
-    except Exception:
-        pass
-
-    try:
-        if hasattr(answer_relevancy_metric, "llm"):
-            answer_relevancy_metric.llm = llm
-    except Exception:
-        pass
-
+    # Algunas versiones exponen embeddings como atributo en ciertas métricas.
+    # Si existe, se asigna sin romper compatibilidad.
     try:
         if hasattr(answer_relevancy_metric, "embeddings"):
             answer_relevancy_metric.embeddings = embeddings
@@ -141,7 +116,7 @@ def _build_metric_list(llm, embeddings):
 
     try:
         if hasattr(answer_relevancy_metric, "strictness"):
-            answer_relevancy_metric.strictness = 1
+            answer_relevancy_metric.strictness = int(os.getenv("RAGAS_STRICTNESS", "1"))
     except Exception:
         pass
 
