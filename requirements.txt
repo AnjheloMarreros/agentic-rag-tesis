@@ -9,9 +9,7 @@ langchain-core
 langchain-community
 langchain-huggingface
 langchain-groq
-langchain-openai
-ragas
+ragas<0.4
 python-multipart
 openai-whisper
 numpy
-pypdf
