@@ -1,5 +1,5 @@
 from pathlib import Path
-from pypdf import PdfReader
+from typing import List, Dict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 DOCS_DIR = BASE_DIR / "data" / "docs"
@@ -7,21 +7,11 @@ DOCS_DIR = BASE_DIR / "data" / "docs"
 
 def leer_txt(ruta: Path) -> str:
     with open(ruta, "r", encoding="utf-8") as archivo:
-        return archivo.read()
+        return archivo.read().strip()
 
 
-def leer_pdf(ruta: Path) -> str:
-    lector = PdfReader(str(ruta))
-    partes = []
-
-    for pagina in lector.pages:
-        partes.append(pagina.extract_text() or "")
-
-    return "\n".join(partes)
-
-
-def cargar_documentos():
-    documentos = []
+def cargar_documentos() -> List[Dict[str, str]]:
+    documentos: List[Dict[str, str]] = []
 
     if not DOCS_DIR.exists():
         raise FileNotFoundError(
@@ -29,21 +19,27 @@ def cargar_documentos():
         )
 
     for archivo in DOCS_DIR.iterdir():
-        if archivo.is_file():
-            if archivo.suffix.lower() == ".txt":
-                documentos.append({
-                    "source": archivo.stem,
-                    "type": "txt",
-                    "text": leer_txt(archivo)
-                })
-            elif archivo.suffix.lower() == ".pdf":
-                documentos.append({
-                    "source": archivo.stem,
-                    "type": "pdf",
-                    "text": leer_pdf(archivo)
-                })
+        if not archivo.is_file():
+            continue
+
+        if archivo.suffix.lower() != ".txt":
+            continue
+
+        texto = leer_txt(archivo)
+        if not texto:
+            continue
+
+        documentos.append(
+            {
+                "source": archivo.stem,
+                "type": "txt",
+                "text": texto,
+            }
+        )
 
     if not documentos:
-        raise ValueError("No se encontraron documentos para cargar en la base vectorial.")
+        raise ValueError(
+            "No se encontraron documentos .txt para cargar en la base vectorial."
+        )
 
     return documentos
