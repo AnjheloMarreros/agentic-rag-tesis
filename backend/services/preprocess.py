@@ -1,23 +1,30 @@
-# Dejado en pausa
-from pypdf import PdfReader
+from __future__ import annotations
+
+import re
+import unicodedata
 
 
 def normalizar_texto(texto: str) -> str:
-    return " ".join(texto.split()).strip()
+    """
+    Normaliza texto para evaluación:
+    - elimina espacios duplicados
+    - unifica saltos de línea
+    - conserva el contenido textual
+    - no depende de PDF ni de librerías externas pesadas
+    """
+    if texto is None:
+        return ""
 
+    texto = str(texto)
 
-def extraer_texto_pdf(ruta_pdf: str) -> str:
-    lector = PdfReader(ruta_pdf)
-    partes = []
+    # Normalización Unicode
+    texto = unicodedata.normalize("NFKC", texto)
 
-    for pagina in lector.pages:
-        texto = pagina.extract_text() or ""
-        partes.append(texto)
+    # Unifica saltos de línea
+    texto = texto.replace("\r\n", "\n").replace("\r", "\n")
 
-    return normalizar_texto("\n".join(partes))
+    # Reduce espacios y tabs repetidos, pero preserva estructura básica
+    texto = re.sub(r"[ \t]+", " ", texto)
+    texto = re.sub(r"\n\s+\n", "\n\n", texto)
 
-
-def transcribir_audio(ruta_audio: str) -> str:
-    raise NotImplementedError(
-        "La transcripción de audio se implementará en una fase posterior."
-    )
+    return texto.strip()
