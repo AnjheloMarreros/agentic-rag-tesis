@@ -1,13 +1,12 @@
 from functools import lru_cache
 from pathlib import Path
 
-import whisper
-
 from backend.services.preprocess import normalizar_texto
 
 
 @lru_cache(maxsize=1)
 def get_whisper_model():
+    import whisper
     return whisper.load_model("base")
 
 
