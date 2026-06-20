@@ -6,11 +6,8 @@ import unicodedata
 
 def normalizar_texto(texto: str) -> str:
     """
-    Normaliza texto para evaluación:
-    - elimina espacios duplicados
-    - unifica saltos de línea
-    - conserva el contenido textual
-    - no depende de PDF ni de librerías externas pesadas
+    Normaliza texto plano para evaluación.
+    No depende de PDF ni de otras librerías externas pesadas.
     """
     if texto is None:
         return ""
@@ -23,8 +20,10 @@ def normalizar_texto(texto: str) -> str:
     # Unifica saltos de línea
     texto = texto.replace("\r\n", "\n").replace("\r", "\n")
 
-    # Reduce espacios y tabs repetidos, pero preserva estructura básica
+    # Reduce espacios y tabs repetidos
     texto = re.sub(r"[ \t]+", " ", texto)
+
+    # Limpia líneas con solo espacios
     texto = re.sub(r"\n\s+\n", "\n\n", texto)
 
     return texto.strip()
