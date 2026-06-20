@@ -65,7 +65,10 @@ def _mean_safe(values: list[Any]) -> float:
 
 def _build_models():
     groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
-    groq_model = os.getenv("GROQ_MODEL", os.getenv("RAGAS_MODEL", "llama-3.3-70b-versatile")).strip()
+    groq_model = os.getenv(
+        "GROQ_MODEL",
+        os.getenv("RAGAS_MODEL", "llama-3.3-70b-versatile"),
+    ).strip()
     embedding_model = os.getenv(
         "RAGAS_EMBEDDING_MODEL",
         "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -101,24 +104,14 @@ def _build_models():
 
 
 def _build_metric_list(llm, embeddings):
-    from ragas.metrics.collections import Faithfulness, AnswerRelevancy
+    from ragas.metrics import Faithfulness, ResponseRelevancy
 
     faithfulness_metric = Faithfulness(llm=llm)
-    answer_relevancy_metric = AnswerRelevancy(llm=llm)
-
-    # Algunas versiones exponen embeddings como atributo en ciertas métricas.
-    # Si existe, se asigna sin romper compatibilidad.
-    try:
-        if hasattr(answer_relevancy_metric, "embeddings"):
-            answer_relevancy_metric.embeddings = embeddings
-    except Exception:
-        pass
-
-    try:
-        if hasattr(answer_relevancy_metric, "strictness"):
-            answer_relevancy_metric.strictness = int(os.getenv("RAGAS_STRICTNESS", "1"))
-    except Exception:
-        pass
+    answer_relevancy_metric = ResponseRelevancy(
+        llm=llm,
+        embeddings=embeddings,
+        strictness=int(os.getenv("RAGAS_STRICTNESS", "3")),
+    )
 
     return [
         faithfulness_metric,
@@ -175,7 +168,7 @@ def run_ragas_live_evaluation() -> dict[str, Any]:
     llm, embeddings = _build_models()
 
     print("=" * 60)
-    print("GROQ_MODEL =", os.getenv("GROQ_MODEL"))
+    print("GROQ_MODEL =", os.getenv("GROQ_MODEL") or os.getenv("RAGAS_MODEL"))
     print("LLM =", type(llm))
     print("EMBEDDINGS =", type(embeddings))
     print("=" * 60)
