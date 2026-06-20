@@ -8,21 +8,13 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from pydantic import BaseModel
 
-from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
 from backend.services.audio_handler import transcribir_audio
-from backend.services.benchmark_orchestrator import ejecutar_benchmark_dual
-from backend.services.benchmark_ragas_runner import (
-    get_daily_benchmark_job,
-    start_daily_benchmark_job,
-)
 from backend.services.case_loader import cargar_caso, listar_casos
 from backend.services.feedback import generar_retroalimentacion
 from backend.services.input_handler import normalizar_texto
 from backend.services.logs import registrar_evento
 from backend.services.rag_engine import evaluar_respuesta_con_rag
 from backend.services.retrieval import recuperar_contexto
-from backend.services.langchain_bridge import ejecutar_evaluacion_langchain
-from backend.services.ragas_runner import run_ragas_live_evaluation
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -203,6 +195,8 @@ async def evaluar_entrada(
             texto=contenido,
         )
 
+        from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
+
         return ejecutar_evaluacion_langgraph(
             caso_id=caso_id,
             tipo_entrada=tipo_entrada,
@@ -231,6 +225,8 @@ async def evaluar_entrada(
             texto=contenido,
             ruta_audio=str(temp_path),
         )
+
+        from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
 
         return ejecutar_evaluacion_langgraph(
             caso_id=caso_id,
@@ -295,6 +291,8 @@ async def evaluar_langgraph(
         raise HTTPException(status_code=400, detail="tipo_entrada inválido.")
 
     try:
+        from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
+
         return ejecutar_evaluacion_langgraph(
             caso_id=caso_id,
             tipo_entrada=tipo_entrada,
@@ -354,6 +352,8 @@ async def evaluar_langchain(
         raise HTTPException(status_code=400, detail="tipo_entrada inválido.")
 
     try:
+        from backend.services.langchain_bridge import ejecutar_evaluacion_langchain
+
         return ejecutar_evaluacion_langchain(
             caso_id=caso_id,
             tipo_entrada=tipo_entrada,
@@ -413,6 +413,8 @@ async def evaluar_benchmark(
     )
 
     try:
+        from backend.services.benchmark_orchestrator import ejecutar_benchmark_dual
+
         return ejecutar_benchmark_dual(
             caso_id=caso_id,
             tipo_entrada_original=tipo_entrada,
@@ -425,6 +427,8 @@ async def evaluar_benchmark(
 @app.get("/api/ragas/live")
 def api_ragas_live():
     try:
+        from backend.services.ragas_runner import run_ragas_live_evaluation
+
         return run_ragas_live_evaluation()
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
@@ -432,9 +436,13 @@ def api_ragas_live():
 
 @app.get("/api/ragas/benchmark-daily")
 def api_ragas_benchmark_daily_start():
+    from backend.services.benchmark_ragas_runner import start_daily_benchmark_job
+
     return start_daily_benchmark_job()
 
 
 @app.get("/api/ragas/benchmark-daily/{job_id}")
 def api_ragas_benchmark_daily_status(job_id: str):
+    from backend.services.benchmark_ragas_runner import get_daily_benchmark_job
+
     return get_daily_benchmark_job(job_id)
