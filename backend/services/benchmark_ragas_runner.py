@@ -15,7 +15,8 @@ except Exception:  # pragma: no cover
     from ragas import EvaluationDataset, SingleTurnSample  # type: ignore
 
 from ragas import evaluate
-from ragas.metrics import answer_relevancy, faithfulness
+#from ragas.metrics import answer_relevancy, faithfulness
+from ragas.metrics.collections import Faithfulness, AnswerRelevancy
 from ragas.run_config import RunConfig
 
 try:
@@ -208,10 +209,15 @@ def _build_models():
     return LangchainLLMWrapper(llm), LangchainEmbeddingsWrapper(embeddings)
 
 
+#def _build_metric_list(llm: Any, embeddings: Any):
+#    return [
+#        faithfulness,
+#        answer_relevancy,
+#    ]
 def _build_metric_list(llm: Any, embeddings: Any):
     return [
-        faithfulness,
-        answer_relevancy,
+        Faithfulness(llm=llm),
+        AnswerRelevancy(llm=llm, embeddings=embeddings),
     ]
 
 
