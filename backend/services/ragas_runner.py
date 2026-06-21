@@ -5,6 +5,8 @@ from typing import Any
 from math import isfinite
 import json
 import os
+import traceback
+from pprint import pformat
 
 from dotenv import load_dotenv
 
@@ -16,6 +18,25 @@ from backend.services.ragas_dataset_builder import (
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
 RESULTS_DIR = BASE_DIR / "data" / "evals" / "ragas_results"
+
+
+def _env_flag(name: str, default: str = "0") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+DEBUG_RAGAS = _env_flag("RAGAS_DEBUG", "0") == "1"
+
+
+def _debug_print(title: str, payload: Any | None = None) -> None:
+    if not DEBUG_RAGAS:
+        return
+
+    print(f"[RAGAS-DEBUG] {title}")
+    if payload is not None:
+        try:
+            print(pformat(payload, width=140, sort_dicts=False))
+        except Exception:
+            print(str(payload))
 
 
 def _clean_jsonable(value: Any) -> Any:
@@ -87,6 +108,26 @@ def _sample_has_contexts(sample: Any) -> bool:
 
     contexts = getattr(sample, "retrieved_contexts", None)
     return bool(contexts)
+
+
+def _sample_preview(sample: Any) -> dict[str, Any]:
+    if isinstance(sample, dict):
+        return {
+            "user_input": sample.get("user_input"),
+            "response": sample.get("response"),
+            "retrieved_contexts": sample.get("retrieved_contexts"),
+            "reference_contexts": sample.get("reference_contexts"),
+            "reference": sample.get("reference"),
+        }
+
+    preview: dict[str, Any] = {}
+    for attr in ("user_input", "response", "retrieved_contexts", "reference_contexts", "reference"):
+        if hasattr(sample, attr):
+            try:
+                preview[attr] = getattr(sample, attr)
+            except Exception:
+                preview[attr] = "<unreadable>"
+    return preview
 
 
 def _build_models():
@@ -165,7 +206,7 @@ def _evaluate_dataset(dataset, metrics, llm, embeddings):
             llm=llm,
             embeddings=embeddings,
             show_progress=False,
-            raise_exceptions=False,
+            raise_exceptions=DEBUG_RAGAS,
             run_config=run_config,
         )
     except TypeError:
@@ -176,7 +217,7 @@ def _evaluate_dataset(dataset, metrics, llm, embeddings):
                 llm=llm,
                 embeddings=embeddings,
                 show_progress=False,
-                raise_exceptions=False,
+                raise_exceptions=DEBUG_RAGAS,
                 run_config=run_config,
             )
         except TypeError:
@@ -186,14 +227,22 @@ def _evaluate_dataset(dataset, metrics, llm, embeddings):
                 llm=llm,
                 embeddings=embeddings,
                 show_progress=False,
-                raise_exceptions=False,
+                raise_exceptions=DEBUG_RAGAS,
             )
 
 
 def run_ragas_live_evaluation(benchmark_id: str | None = None) -> dict[str, Any]:
     selected_benchmark_id = benchmark_id or find_latest_benchmark_id()
+
+    _debug_print("selected_benchmark_id", selected_benchmark_id)
+
     dataset = build_dataset_from_logs(benchmark_id=selected_benchmark_id)
     samples = _dataset_samples(dataset)
+
+    _debug_print("samples_loaded", len(samples))
+    if DEBUG_RAGAS:
+        for i, sample in enumerate(samples[:5], start=1):
+            _debug_print(f"sample_preview_{i}", _sample_preview(sample))
 
     if not samples:
         return {
@@ -216,6 +265,8 @@ def run_ragas_live_evaluation(benchmark_id: str | None = None) -> dict[str, Any]
 
     include_faithfulness = any(_sample_has_contexts(sample) for sample in samples)
 
+    _debug_print("has_retrieved_contexts", include_faithfulness)
+
     llm, embeddings = _build_models()
 
     print("=" * 60)
@@ -225,15 +276,23 @@ def run_ragas_live_evaluation(benchmark_id: str | None = None) -> dict[str, Any]
     print("EMBEDDINGS =", type(embeddings))
     print("SAMPLES =", len(samples))
     print("HAS_CONTEXTS =", include_faithfulness)
+    print("RAGAS_DEBUG =", DEBUG_RAGAS)
     print("=" * 60)
 
     metrics = _build_metric_list(llm, embeddings, include_faithfulness=include_faithfulness)
+    _debug_print("metrics_used", [metric.__class__.__name__ for metric in metrics])
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
         result = _evaluate_dataset(dataset, metrics, llm, embeddings)
     except Exception as exc:
+        print("[RAGAS-ERROR] evaluate() falló")
+        print(f"[RAGAS-ERROR] benchmark_id={selected_benchmark_id}")
+        print(f"[RAGAS-ERROR] type={type(exc).__name__}")
+        print(f"[RAGAS-ERROR] message={exc}")
+        print(traceback.format_exc())
+
         message = str(exc)
         lower_message = message.lower()
 
@@ -255,9 +314,52 @@ def run_ragas_live_evaluation(benchmark_id: str | None = None) -> dict[str, Any]
                 "output_csv": None,
             }
 
-        raise
+        if DEBUG_RAGAS:
+            raise
 
-    df = result.to_pandas()
+        return {
+            "ok": False,
+            "status": "evaluation_error",
+            "provider": "groq",
+            "benchmark_id_used": selected_benchmark_id,
+            "message": "RAGAS falló durante la evaluación.",
+            "detail": message,
+            "summary": {},
+            "num_samples": 0,
+            "input_samples": len(samples),
+            "rows": [],
+            "output_csv": None,
+        }
+
+    try:
+        df = result.to_pandas()
+    except Exception as exc:
+        print("[RAGAS-ERROR] to_pandas() falló")
+        print(f"[RAGAS-ERROR] benchmark_id={selected_benchmark_id}")
+        print(f"[RAGAS-ERROR] type={type(exc).__name__}")
+        print(f"[RAGAS-ERROR] message={exc}")
+        print(traceback.format_exc())
+
+        if DEBUG_RAGAS:
+            raise
+
+        return {
+            "ok": False,
+            "status": "result_to_dataframe_error",
+            "provider": "groq",
+            "benchmark_id_used": selected_benchmark_id,
+            "message": "RAGAS devolvió un resultado que no pudo convertirse a tabla.",
+            "detail": str(exc),
+            "summary": {},
+            "num_samples": 0,
+            "input_samples": len(samples),
+            "rows": [],
+            "output_csv": None,
+        }
+
+    if DEBUG_RAGAS:
+        _debug_print("df_columns", list(df.columns))
+        _debug_print("df_head", df.head(5).to_dict(orient="records"))
 
     if df.empty:
         return {
