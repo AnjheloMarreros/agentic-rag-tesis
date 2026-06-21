@@ -28,14 +28,39 @@ def _normalize_text(value: Any) -> str:
     return str(value).strip()
 
 
+def _context_item_to_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in (
+            "fragmento",
+            "texto",
+            "text",
+            "content",
+            "context",
+            "contexto",
+            "chunk",
+            "document",
+            "documento",
+            "respuesta_contexto",
+        ):
+            candidate = _normalize_text(value.get(key))
+            if candidate:
+                return candidate
+        return _normalize_text(value)
+    return _normalize_text(value)
+
+
 def _normalize_list(value: Any) -> list[str]:
     if value is None:
         return []
     if isinstance(value, list):
-        return [_normalize_text(item) for item in value if _normalize_text(item)]
+        return [item for item in (_context_item_to_text(x) for x in value) if item]
     if isinstance(value, tuple):
-        return [_normalize_text(item) for item in value if _normalize_text(item)]
-    text = _normalize_text(value)
+        return [item for item in (_context_item_to_text(x) for x in value) if item]
+    text = _context_item_to_text(value)
     return [text] if text else []
 
 
@@ -93,6 +118,9 @@ def _build_sample_from_payload(payload: dict[str, Any]) -> SingleTurnSample:
         or payload.get("texto")
         or payload.get("response")
         or payload.get("respuesta")
+        or payload.get("question")
+        or payload.get("entrada")
+        or payload.get("input")
     )
 
     response = _normalize_text(
@@ -100,11 +128,17 @@ def _build_sample_from_payload(payload: dict[str, Any]) -> SingleTurnSample:
         or payload.get("respuesta")
         or payload.get("entrada_estudiante")
         or payload.get("texto")
+        or payload.get("texto_respuesta")
+        or payload.get("answer")
     )
 
     retrieved_contexts = _normalize_list(
         payload.get("retrieved_contexts")
         or payload.get("contexto_recuperado")
+        or payload.get("fuentes")
+        or payload.get("contexto")
+        or payload.get("context")
+        or payload.get("documents")
     )
 
     reference_contexts = _normalize_list(
@@ -126,7 +160,6 @@ def _build_sample_from_payload(payload: dict[str, Any]) -> SingleTurnSample:
         "retrieved_contexts": retrieved_contexts,
     }
 
-    # Campos opcionales útiles para futuras métricas.
     if reference_contexts:
         sample_kwargs["reference_contexts"] = reference_contexts
     if reference:
@@ -168,32 +201,29 @@ def build_dataset_from_logs(
             or payload.get("texto")
             or payload.get("response")
             or payload.get("respuesta")
+            or payload.get("question")
+            or payload.get("entrada")
+            or payload.get("input")
         )
         response = _normalize_text(
             payload.get("response")
             or payload.get("respuesta")
             or payload.get("entrada_estudiante")
             or payload.get("texto")
-        )
-        retrieved_contexts = _normalize_list(
-            payload.get("retrieved_contexts")
-            or payload.get("contexto_recuperado")
+            or payload.get("texto_respuesta")
+            or payload.get("answer")
         )
 
         if not user_input or not response:
             continue
-        if not retrieved_contexts:
-            # Faithfulness necesita contexto recuperado.
-            continue
 
+        # No descartamos por falta de contexto. Si existe, se conserva.
         samples.append(_build_sample_from_payload(payload))
 
     if not samples:
-        # Dataset vacío pero válido.
         return EvaluationDataset(samples=[])
 
     try:
         return EvaluationDataset(samples=samples)
     except Exception:
-        # Compatibilidad con otras firmas.
         return EvaluationDataset.from_list(samples)  # type: ignore[attr-defined]
