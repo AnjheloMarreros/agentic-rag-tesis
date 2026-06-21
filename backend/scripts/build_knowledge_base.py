@@ -20,7 +20,7 @@ def _safe_id_component(value: str) -> str:
     return value.strip("_") or "documento"
 
 
-def construir_base_conocimiento():
+def construir_base_conocimiento(include_pedagogical: bool = False):
     client = get_client()
 
     try:
@@ -29,7 +29,7 @@ def construir_base_conocimiento():
         pass
 
     collection = get_collection()
-    documentos = cargar_documentos()
+    documentos = cargar_documentos(include_pedagogical=include_pedagogical)
 
     textos = []
     ids = []
@@ -49,6 +49,7 @@ def construir_base_conocimiento():
                 {
                     "source": doc["source"],
                     "type": doc["type"],
+                    "scope": doc.get("scope", "knowledge"),
                     "chunk": i,
                 }
             )
