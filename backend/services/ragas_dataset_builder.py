@@ -111,6 +111,34 @@ def _iter_candidate_events(
             yield event_name, payload_pipeline, data
 
 
+def _extract_nested_payloads(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """
+    Soporta:
+    - eventos planos: evaluacion_langgraph / evaluacion_langchain
+    - evento agregado: benchmark_dual_ejecucion con langgraph/langchain anidados
+    """
+    nested: list[dict[str, Any]] = []
+
+    for pipeline_name in ("langgraph", "langchain"):
+        sub = payload.get(pipeline_name)
+        if isinstance(sub, dict):
+            resultado = sub.get("resultado_final")
+            if isinstance(resultado, dict):
+                nested.append(
+                    {
+                        "user_input": resultado.get("texto_caso") or payload.get("texto_procesado") or "",
+                        "response": resultado.get("entrada") or resultado.get("entrada_estudiante") or "",
+                        "retrieved_contexts": resultado.get("contexto_recuperado") or [],
+                        "reference_contexts": resultado.get("caso", {}).get("contexto", []),
+                        "reference": "",
+                        "sample_id": payload.get("sample_id", ""),
+                        "benchmark_id": payload.get("benchmark_id", ""),
+                    }
+                )
+
+    return nested
+
+
 def _build_sample_from_payload(payload: dict[str, Any]) -> SingleTurnSample:
     user_input = _normalize_text(
         payload.get("user_input")
@@ -118,6 +146,7 @@ def _build_sample_from_payload(payload: dict[str, Any]) -> SingleTurnSample:
         or payload.get("texto")
         or payload.get("response")
         or payload.get("respuesta")
+        or payload.get("texto_procesado")
         or payload.get("question")
         or payload.get("entrada")
         or payload.get("input")
@@ -173,34 +202,25 @@ def build_dataset_from_logs(
     event_types: Iterable[str] | None = None,
     pipelines: Iterable[str] | None = None,
 ):
-    """
-    Construye un dataset compatible con RAGAS desde logs JSONL.
-
-    event_types:
-        Filtra por el tipo de evento guardado en el log.
-        Ejemplo: "evaluacion_langgraph", "evaluacion_langchain".
-
-    pipelines:
-        Filtra por el campo interno pipeline.
-        Ejemplo: "langgraph", "langchain".
-    """
     files = [Path(p) for p in (log_files or DEFAULT_LOG_FILES)]
     event_types_set = {str(x).strip() for x in event_types} if event_types else None
     pipelines_set = {str(x).strip() for x in pipelines} if pipelines else None
 
     samples: list[SingleTurnSample] = []
 
-    for _, _, payload in _iter_candidate_events(
+    for event_name, pipeline_name, payload in _iter_candidate_events(
         files,
         event_types=event_types_set,
         pipelines=pipelines_set,
     ):
+        # Caso 1: evento plano ya compatible
         user_input = _normalize_text(
             payload.get("user_input")
             or payload.get("entrada_estudiante")
             or payload.get("texto")
             or payload.get("response")
             or payload.get("respuesta")
+            or payload.get("texto_procesado")
             or payload.get("question")
             or payload.get("entrada")
             or payload.get("input")
@@ -213,12 +233,34 @@ def build_dataset_from_logs(
             or payload.get("texto_respuesta")
             or payload.get("answer")
         )
+        retrieved_contexts = _normalize_list(
+            payload.get("retrieved_contexts")
+            or payload.get("contexto_recuperado")
+            or payload.get("fuentes")
+            or payload.get("contexto")
+            or payload.get("context")
+            or payload.get("documents")
+        )
 
-        if not user_input or not response:
+        if user_input and response:
+            samples.append(_build_sample_from_payload(payload))
             continue
 
-        # No descartamos por falta de contexto. Si existe, se conserva.
-        samples.append(_build_sample_from_payload(payload))
+        # Caso 2: benchmark_dual_ejecucion con payload anidado
+        if event_name == "benchmark_dual_ejecucion" or pipeline_name == "benchmark_dual_ejecucion":
+            for nested_payload in _extract_nested_payloads(payload):
+                nested_user_input = _normalize_text(nested_payload.get("user_input"))
+                nested_response = _normalize_text(nested_payload.get("response"))
+                nested_contexts = _normalize_list(nested_payload.get("retrieved_contexts"))
+
+                if not nested_user_input or not nested_response:
+                    continue
+
+                # Para Faithfulness, solo dejamos pasar si hay contexto.
+                if not nested_contexts:
+                    continue
+
+                samples.append(_build_sample_from_payload(nested_payload))
 
     if not samples:
         return EvaluationDataset(samples=[])
