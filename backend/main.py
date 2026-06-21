@@ -425,10 +425,10 @@ async def evaluar_benchmark(
 
 
 @app.get("/api/ragas/live")
-def api_ragas_live():
+def api_ragas_live(benchmark_id: Optional[str] = Query(None, min_length=1)):
     try:
         from backend.services.ragas_runner import run_ragas_live_evaluation
-        return run_ragas_live_evaluation()
+        return run_ragas_live_evaluation(benchmark_id=benchmark_id)
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
 

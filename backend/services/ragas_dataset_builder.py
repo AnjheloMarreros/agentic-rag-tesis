@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Iterable
+from datetime import datetime, timezone
 import json
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -18,6 +19,8 @@ DEFAULT_LOG_FILES = [
     BASE_DIR / "data" / "logs" / "langgraph" / "eventos.jsonl",
     BASE_DIR / "data" / "logs" / "langchain" / "eventos.jsonl",
 ]
+
+ALLOWED_EVENT_TYPES = {"evaluacion_langgraph", "evaluacion_langchain"}
 
 
 def _normalize_text(value: Any) -> str:
@@ -64,6 +67,23 @@ def _normalize_list(value: Any) -> list[str]:
     return [text] if text else []
 
 
+def _parse_timestamp(value: Any) -> datetime:
+    fallback = datetime.min.replace(tzinfo=timezone.utc)
+    text = _normalize_text(value)
+    if not text:
+        return fallback
+
+    try:
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    except Exception:
+        return fallback
+
+
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     if not path.exists():
@@ -83,11 +103,7 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _iter_candidate_events(
-    log_files: Iterable[Path],
-    event_types: set[str] | None = None,
-    pipelines: set[str] | None = None,
-):
+def _iter_candidate_events(log_files: Iterable[Path]):
     for path in log_files:
         for row in _load_jsonl(path):
             event_name = (
@@ -102,86 +118,50 @@ def _iter_candidate_events(
                 continue
 
             payload_pipeline = _normalize_text(data.get("pipeline")) or event_name
+            benchmark_id = _normalize_text(
+                data.get("benchmark_id")
+                or row.get("benchmark_id")
+                or data.get("run_id")
+                or row.get("run_id")
+            )
+            timestamp = _parse_timestamp(row.get("timestamp") or data.get("timestamp"))
 
-            if event_types and event_name not in event_types:
-                continue
-            if pipelines and payload_pipeline not in pipelines:
-                continue
+            yield {
+                "event_name": event_name,
+                "payload_pipeline": payload_pipeline,
+                "benchmark_id": benchmark_id,
+                "timestamp": timestamp,
+                "payload": data,
+            }
 
-            yield event_name, payload_pipeline, data
 
+def find_latest_benchmark_id(log_files: list[str | Path] | None = None) -> str | None:
+    files = [Path(p) for p in (log_files or DEFAULT_LOG_FILES)]
 
-def _extract_nested_payloads(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    Soporta:
-    - eventos planos: evaluacion_langgraph / evaluacion_langchain
-    - evento agregado: benchmark_dual_ejecucion con langgraph/langchain anidados
-    """
-    nested: list[dict[str, Any]] = []
+    latest_benchmark_id: str | None = None
+    latest_timestamp = datetime.min.replace(tzinfo=timezone.utc)
 
-    for pipeline_name in ("langgraph", "langchain"):
-        sub = payload.get(pipeline_name)
-        if isinstance(sub, dict):
-            resultado = sub.get("resultado_final")
-            if isinstance(resultado, dict):
-                nested.append(
-                    {
-                        "user_input": resultado.get("texto_caso") or payload.get("texto_procesado") or "",
-                        "response": resultado.get("entrada") or resultado.get("entrada_estudiante") or "",
-                        "retrieved_contexts": resultado.get("contexto_recuperado") or [],
-                        "reference_contexts": resultado.get("caso", {}).get("contexto", []),
-                        "reference": "",
-                        "sample_id": payload.get("sample_id", ""),
-                        "benchmark_id": payload.get("benchmark_id", ""),
-                    }
-                )
+    for item in _iter_candidate_events(files):
+        if item["event_name"] not in ALLOWED_EVENT_TYPES:
+            continue
 
-    return nested
+        benchmark_id = item["benchmark_id"]
+        if not benchmark_id:
+            continue
+
+        if item["timestamp"] >= latest_timestamp:
+            latest_timestamp = item["timestamp"]
+            latest_benchmark_id = benchmark_id
+
+    return latest_benchmark_id
 
 
 def _build_sample_from_payload(payload: dict[str, Any]) -> SingleTurnSample:
-    user_input = _normalize_text(
-        payload.get("user_input")
-        or payload.get("entrada_estudiante")
-        or payload.get("texto")
-        or payload.get("response")
-        or payload.get("respuesta")
-        or payload.get("texto_procesado")
-        or payload.get("question")
-        or payload.get("entrada")
-        or payload.get("input")
-    )
-
-    response = _normalize_text(
-        payload.get("response")
-        or payload.get("respuesta")
-        or payload.get("entrada_estudiante")
-        or payload.get("texto")
-        or payload.get("texto_respuesta")
-        or payload.get("answer")
-    )
-
-    retrieved_contexts = _normalize_list(
-        payload.get("retrieved_contexts")
-        or payload.get("contexto_recuperado")
-        or payload.get("fuentes")
-        or payload.get("contexto")
-        or payload.get("context")
-        or payload.get("documents")
-    )
-
-    reference_contexts = _normalize_list(
-        payload.get("reference_contexts")
-        or payload.get("referencia_contextos")
-        or payload.get("contexto_referencia")
-        or payload.get("reference_context")
-    )
-
-    reference = _normalize_text(
-        payload.get("reference")
-        or payload.get("reference_answer")
-        or payload.get("respuesta_referencia")
-    )
+    user_input = _normalize_text(payload.get("user_input"))
+    response = _normalize_text(payload.get("response"))
+    retrieved_contexts = _normalize_list(payload.get("retrieved_contexts"))
+    reference_contexts = _normalize_list(payload.get("reference_contexts"))
+    reference = _normalize_text(payload.get("reference"))
 
     sample_kwargs: dict[str, Any] = {
         "user_input": user_input,
@@ -199,68 +179,38 @@ def _build_sample_from_payload(payload: dict[str, Any]) -> SingleTurnSample:
 
 def build_dataset_from_logs(
     log_files: list[str | Path] | None = None,
-    event_types: Iterable[str] | None = None,
-    pipelines: Iterable[str] | None = None,
+    benchmark_id: str | None = None,
 ):
+    """
+    Construye un dataset compatible con RAGAS únicamente desde eventos de evaluación
+    reales (evaluacion_langgraph / evaluacion_langchain).
+
+    Si benchmark_id es None, se toma la corrida más reciente encontrada en los logs.
+    """
     files = [Path(p) for p in (log_files or DEFAULT_LOG_FILES)]
-    event_types_set = {str(x).strip() for x in event_types} if event_types else None
-    pipelines_set = {str(x).strip() for x in pipelines} if pipelines else None
+    selected_benchmark_id = benchmark_id or find_latest_benchmark_id(files)
 
     samples: list[SingleTurnSample] = []
 
-    for event_name, pipeline_name, payload in _iter_candidate_events(
-        files,
-        event_types=event_types_set,
-        pipelines=pipelines_set,
-    ):
-        # Caso 1: evento plano ya compatible
-        user_input = _normalize_text(
-            payload.get("user_input")
-            or payload.get("entrada_estudiante")
-            or payload.get("texto")
-            or payload.get("response")
-            or payload.get("respuesta")
-            or payload.get("texto_procesado")
-            or payload.get("question")
-            or payload.get("entrada")
-            or payload.get("input")
-        )
-        response = _normalize_text(
-            payload.get("response")
-            or payload.get("respuesta")
-            or payload.get("entrada_estudiante")
-            or payload.get("texto")
-            or payload.get("texto_respuesta")
-            or payload.get("answer")
-        )
-        retrieved_contexts = _normalize_list(
-            payload.get("retrieved_contexts")
-            or payload.get("contexto_recuperado")
-            or payload.get("fuentes")
-            or payload.get("contexto")
-            or payload.get("context")
-            or payload.get("documents")
-        )
+    for item in _iter_candidate_events(files):
+        event_name = item["event_name"]
+        payload = item["payload"]
+        payload_benchmark_id = item["benchmark_id"]
 
-        if user_input and response:
-            samples.append(_build_sample_from_payload(payload))
+        if event_name not in ALLOWED_EVENT_TYPES:
             continue
 
-        # Caso 2: benchmark_dual_ejecucion con payload anidado
-        if event_name == "benchmark_dual_ejecucion" or pipeline_name == "benchmark_dual_ejecucion":
-            for nested_payload in _extract_nested_payloads(payload):
-                nested_user_input = _normalize_text(nested_payload.get("user_input"))
-                nested_response = _normalize_text(nested_payload.get("response"))
-                nested_contexts = _normalize_list(nested_payload.get("retrieved_contexts"))
+        if selected_benchmark_id and payload_benchmark_id != selected_benchmark_id:
+            continue
 
-                if not nested_user_input or not nested_response:
-                    continue
+        user_input = _normalize_text(payload.get("user_input"))
+        response = _normalize_text(payload.get("response"))
+        retrieved_contexts = _normalize_list(payload.get("retrieved_contexts"))
 
-                # Para Faithfulness, solo dejamos pasar si hay contexto.
-                if not nested_contexts:
-                    continue
+        if not user_input or not response or not retrieved_contexts:
+            continue
 
-                samples.append(_build_sample_from_payload(nested_payload))
+        samples.append(_build_sample_from_payload(payload))
 
     if not samples:
         return EvaluationDataset(samples=[])
