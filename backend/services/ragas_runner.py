@@ -8,7 +8,10 @@ import os
 
 from dotenv import load_dotenv
 
-from backend.services.ragas_dataset_builder import build_dataset_from_logs
+from backend.services.ragas_dataset_builder import (
+    build_dataset_from_logs,
+    find_latest_benchmark_id,
+)
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
@@ -187,8 +190,9 @@ def _evaluate_dataset(dataset, metrics, llm, embeddings):
             )
 
 
-def run_ragas_live_evaluation() -> dict[str, Any]:
-    dataset = build_dataset_from_logs()
+def run_ragas_live_evaluation(benchmark_id: str | None = None) -> dict[str, Any]:
+    selected_benchmark_id = benchmark_id or find_latest_benchmark_id()
+    dataset = build_dataset_from_logs(benchmark_id=selected_benchmark_id)
     samples = _dataset_samples(dataset)
 
     if not samples:
@@ -196,14 +200,16 @@ def run_ragas_live_evaluation() -> dict[str, Any]:
             "ok": False,
             "status": "empty_dataset",
             "provider": "groq",
+            "benchmark_id_used": selected_benchmark_id,
             "message": (
                 "No se encontraron registros compatibles para RAGAS. "
-                "El dataset quedó vacío porque los logs no incluyen campos "
-                "suficientes para construir muestras."
+                "El dataset quedó vacío porque no hubo eventos de evaluación "
+                "válidos para la corrida seleccionada."
             ),
             "detail": "build_dataset_from_logs() devolvió 0 muestras.",
             "summary": {},
             "num_samples": 0,
+            "input_samples": 0,
             "rows": [],
             "output_csv": None,
         }
@@ -213,6 +219,7 @@ def run_ragas_live_evaluation() -> dict[str, Any]:
     llm, embeddings = _build_models()
 
     print("=" * 60)
+    print("BENCHMARK_ID =", selected_benchmark_id)
     print("GROQ_MODEL =", os.getenv("GROQ_MODEL") or os.getenv("RAGAS_MODEL"))
     print("LLM =", type(llm))
     print("EMBEDDINGS =", type(embeddings))
@@ -235,6 +242,7 @@ def run_ragas_live_evaluation() -> dict[str, Any]:
                 "ok": False,
                 "status": "quota_exhausted",
                 "provider": "groq",
+                "benchmark_id_used": selected_benchmark_id,
                 "message": (
                     "El proveedor de LLM no tiene cuota disponible para continuar "
                     "con la evaluación RAGAS en este momento."
@@ -242,6 +250,7 @@ def run_ragas_live_evaluation() -> dict[str, Any]:
                 "detail": message,
                 "summary": {},
                 "num_samples": 0,
+                "input_samples": len(samples),
                 "rows": [],
                 "output_csv": None,
             }
@@ -255,10 +264,12 @@ def run_ragas_live_evaluation() -> dict[str, Any]:
             "ok": False,
             "status": "empty_result",
             "provider": "groq",
+            "benchmark_id_used": selected_benchmark_id,
             "message": "RAGAS devolvió un resultado vacío.",
             "detail": "to_pandas() produjo un DataFrame vacío.",
             "summary": {},
             "num_samples": 0,
+            "input_samples": len(samples),
             "rows": [],
             "output_csv": None,
         }
@@ -292,6 +303,7 @@ def run_ragas_live_evaluation() -> dict[str, Any]:
         "ok": True,
         "status": "completed" if include_faithfulness else "completed_without_faithfulness",
         "provider": "groq",
+        "benchmark_id_used": selected_benchmark_id,
         "metrics_used": ["faithfulness", "answer_relevancy"] if include_faithfulness else ["answer_relevancy"],
         "summary": summary,
         "cumple_objetivo_general": cumple_objetivo_general,
