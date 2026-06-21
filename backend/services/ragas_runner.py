@@ -24,7 +24,7 @@ def _env_flag(name: str, default: str = "0") -> bool:
     return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
-DEBUG_RAGAS = _env_flag("RAGAS_DEBUG", "0") == "1"
+DEBUG_RAGAS = _env_flag("RAGAS_DEBUG", "0")
 
 
 def _debug_print(title: str, payload: Any | None = None) -> None:
@@ -181,7 +181,7 @@ def _build_metric_list(llm, embeddings, include_faithfulness: bool = True):
         ResponseRelevancy(
             llm=llm,
             embeddings=embeddings,
-            strictness=int(os.getenv("RAGAS_STRICTNESS", "3")),
+            strictness=int(os.getenv("RAGAS_STRICTNESS", "1")),
         )
     )
     return metrics
