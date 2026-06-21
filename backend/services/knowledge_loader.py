@@ -3,11 +3,9 @@ from typing import List, Dict, Iterable
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
-DOCS_DIRS = [
-    BASE_DIR / "data" / "docs" / "knowledge",
-    BASE_DIR / "data" / "docs" / "pedagogical",
-    BASE_DIR / "data" / "docs",
-]
+DOCS_KNOWLEDGE_DIR = BASE_DIR / "data" / "docs" / "knowledge"
+DOCS_PEDAGOGICAL_DIR = BASE_DIR / "data" / "docs" / "pedagogical"
+DOCS_FALLBACK_DIR = BASE_DIR / "data" / "docs"
 
 ALLOWED_EXTENSIONS = {".txt", ".md"}
 
@@ -39,10 +37,17 @@ def _iterar_archivos_documento(directorios: Iterable[Path]):
             yield ruta_resuelta
 
 
-def cargar_documentos() -> List[Dict[str, str]]:
+def cargar_documentos(include_pedagogical: bool = False) -> List[Dict[str, str]]:
+    directorios = [DOCS_KNOWLEDGE_DIR]
+
+    if include_pedagogical:
+        directorios.append(DOCS_PEDAGOGICAL_DIR)
+
+    directorios.append(DOCS_FALLBACK_DIR)
+
     documentos: List[Dict[str, str]] = []
 
-    archivos = list(_iterar_archivos_documento(DOCS_DIRS))
+    archivos = list(_iterar_archivos_documento(directorios))
 
     if not archivos:
         raise ValueError(
@@ -54,11 +59,19 @@ def cargar_documentos() -> List[Dict[str, str]]:
         if not texto:
             continue
 
+        if DOCS_KNOWLEDGE_DIR in archivo.parents:
+            scope = "knowledge"
+        elif DOCS_PEDAGOGICAL_DIR in archivo.parents:
+            scope = "pedagogical"
+        else:
+            scope = "fallback"
+
         documentos.append(
             {
                 "source": archivo.relative_to(BASE_DIR).as_posix(),
                 "type": archivo.suffix.lower().lstrip("."),
                 "text": texto,
+                "scope": scope,
             }
         )
 
