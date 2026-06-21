@@ -31,39 +31,14 @@ def _normalize_text(value: Any) -> str:
     return str(value).strip()
 
 
-def _context_item_to_text(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, dict):
-        for key in (
-            "fragmento",
-            "texto",
-            "text",
-            "content",
-            "context",
-            "contexto",
-            "chunk",
-            "document",
-            "documento",
-            "respuesta_contexto",
-        ):
-            candidate = _normalize_text(value.get(key))
-            if candidate:
-                return candidate
-        return _normalize_text(value)
-    return _normalize_text(value)
-
-
 def _normalize_list(value: Any) -> list[str]:
     if value is None:
         return []
     if isinstance(value, list):
-        return [item for item in (_context_item_to_text(x) for x in value) if item]
+        return [_normalize_text(item) for item in value if _normalize_text(item)]
     if isinstance(value, tuple):
-        return [item for item in (_context_item_to_text(x) for x in value) if item]
-    text = _context_item_to_text(value)
+        return [_normalize_text(item) for item in value if _normalize_text(item)]
+    text = _normalize_text(value)
     return [text] if text else []
 
 
@@ -156,12 +131,60 @@ def find_latest_benchmark_id(log_files: list[str | Path] | None = None) -> str |
     return latest_benchmark_id
 
 
+def _build_user_input(payload: dict[str, Any]) -> str:
+    caso = payload.get("caso")
+    if isinstance(caso, dict):
+        enunciado = _normalize_text(caso.get("enunciado"))
+        if enunciado:
+            return enunciado
+
+        titulo = _normalize_text(caso.get("titulo"))
+        if titulo:
+            return titulo
+
+    enunciado = _normalize_text(payload.get("enunciado"))
+    if enunciado:
+        return enunciado
+
+    candidate = _normalize_text(payload.get("user_input"))
+    if candidate:
+        return candidate
+
+    texto_caso = _normalize_text(payload.get("texto_caso"))
+    if texto_caso:
+        return texto_caso
+
+    return ""
+
+
 def _build_sample_from_payload(payload: dict[str, Any]) -> SingleTurnSample:
-    user_input = _normalize_text(payload.get("user_input"))
-    response = _normalize_text(payload.get("response"))
-    retrieved_contexts = _normalize_list(payload.get("retrieved_contexts"))
-    reference_contexts = _normalize_list(payload.get("reference_contexts"))
-    reference = _normalize_text(payload.get("reference"))
+    user_input = _build_user_input(payload)
+
+    response = _normalize_text(
+        payload.get("response")
+        or payload.get("entrada")
+        or payload.get("texto_procesado")
+        or payload.get("entrada_estudiante")
+        or payload.get("texto")
+    )
+
+    retrieved_contexts = _normalize_list(
+        payload.get("retrieved_contexts")
+        or payload.get("contexto_recuperado")
+    )
+
+    reference_contexts = _normalize_list(
+        payload.get("reference_contexts")
+        or payload.get("referencia_contextos")
+        or payload.get("contexto_referencia")
+        or payload.get("reference_context")
+    )
+
+    reference = _normalize_text(
+        payload.get("reference")
+        or payload.get("reference_answer")
+        or payload.get("respuesta_referencia")
+    )
 
     sample_kwargs: dict[str, Any] = {
         "user_input": user_input,
@@ -203,9 +226,18 @@ def build_dataset_from_logs(
         if selected_benchmark_id and payload_benchmark_id != selected_benchmark_id:
             continue
 
-        user_input = _normalize_text(payload.get("user_input"))
-        response = _normalize_text(payload.get("response"))
-        retrieved_contexts = _normalize_list(payload.get("retrieved_contexts"))
+        user_input = _build_user_input(payload)
+        response = _normalize_text(
+            payload.get("response")
+            or payload.get("entrada")
+            or payload.get("texto_procesado")
+            or payload.get("entrada_estudiante")
+            or payload.get("texto")
+        )
+        retrieved_contexts = _normalize_list(
+            payload.get("retrieved_contexts")
+            or payload.get("contexto_recuperado")
+        )
 
         if not user_input or not response or not retrieved_contexts:
             continue
