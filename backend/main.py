@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Optional
+from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
@@ -30,6 +32,24 @@ class RespuestaEstudiante(BaseModel):
     respuesta: str
 
 
+def _generar_identificadores_benchmark(
+    caso_id: str,
+    benchmark_id: Optional[str] = None,
+    sample_id: Optional[str] = None,
+) -> tuple[str, str]:
+    benchmark_id_final = (
+        benchmark_id.strip()
+        if isinstance(benchmark_id, str) and benchmark_id.strip()
+        else f"bm_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}_{uuid4().hex[:8]}"
+    )
+    sample_id_final = (
+        sample_id.strip()
+        if isinstance(sample_id, str) and sample_id.strip()
+        else f"{caso_id}_{uuid4().hex[:8]}"
+    )
+    return benchmark_id_final, sample_id_final
+
+
 def _guardar_audio_temporal(archivo: UploadFile) -> Path:
     suffix = Path(archivo.filename or "audio.mp3").suffix or ".mp3"
     with NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
@@ -44,15 +64,23 @@ def _registrar_respuesta_recibida(
     tipo_entrada: str,
     texto: str,
     ruta_audio: str = "",
+    benchmark_id: str = "",
+    sample_id: str = "",
 ) -> None:
+    payload = {
+        "caso_id": caso_id,
+        "tipo_entrada": tipo_entrada,
+        "texto": texto,
+        "ruta_audio": ruta_audio,
+    }
+    if benchmark_id:
+        payload["benchmark_id"] = benchmark_id
+    if sample_id:
+        payload["sample_id"] = sample_id
+
     registrar_evento(
         "respuesta_estudiante_recibida",
-        {
-            "caso_id": caso_id,
-            "tipo_entrada": tipo_entrada,
-            "texto": texto,
-            "ruta_audio": ruta_audio,
-        },
+        payload,
     )
 
 
@@ -74,6 +102,7 @@ def raiz():
         "endpoints": [
             "/casos",
             "/caso/{caso_id}",
+            "/benchmark/start",
             "/evaluar",
             "/evaluar-entrada",
             "/evaluar-langgraph",
@@ -97,6 +126,29 @@ def obtener_caso(caso_id: str):
         return cargar_caso(caso_id)
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error))
+
+
+@app.post("/benchmark/start")
+def benchmark_start(caso_id: str = Query("caso_001", min_length=1)):
+    benchmark_id, sample_id = _generar_identificadores_benchmark(caso_id)
+
+    registrar_evento(
+        "benchmark_inicio",
+        {
+            "caso_id": caso_id,
+            "benchmark_id": benchmark_id,
+            "sample_id": sample_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+
+    return {
+        "ok": True,
+        "caso_id": caso_id,
+        "benchmark_id": benchmark_id,
+        "sample_id": sample_id,
+        "mensaje": "Benchmark iniciado correctamente.",
+    }
 
 
 @app.post("/evaluar")
@@ -171,9 +223,16 @@ async def evaluar_entrada(
     caso_id: str = Form("caso_001"),
     tipo_entrada: str = Form(...),
     texto: str = Form(""),
+    benchmark_id: Optional[str] = Form(None),
+    sample_id: Optional[str] = Form(None),
     archivo_audio: Optional[UploadFile] = File(None),
 ):
     tipo_entrada = tipo_entrada.lower().strip()
+    benchmark_id_final, sample_id_final = _generar_identificadores_benchmark(
+        caso_id=caso_id,
+        benchmark_id=benchmark_id,
+        sample_id=sample_id,
+    )
 
     if tipo_entrada not in ("texto", "audio"):
         raise HTTPException(
@@ -193,6 +252,8 @@ async def evaluar_entrada(
             caso_id=caso_id,
             tipo_entrada="texto",
             texto=contenido,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
         )
 
         from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
@@ -201,6 +262,8 @@ async def evaluar_entrada(
             caso_id=caso_id,
             tipo_entrada=tipo_entrada,
             texto=contenido,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
         )
 
     if archivo_audio is None:
@@ -224,6 +287,8 @@ async def evaluar_entrada(
             tipo_entrada="audio",
             texto=contenido,
             ruta_audio=str(temp_path),
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
         )
 
         from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
@@ -232,6 +297,8 @@ async def evaluar_entrada(
             caso_id=caso_id,
             tipo_entrada=tipo_entrada,
             texto=contenido,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
         )
     finally:
         try:
@@ -246,9 +313,16 @@ async def evaluar_langgraph(
     caso_id: str = Form("caso_001"),
     tipo_entrada: str = Form(...),
     texto: str = Form(""),
+    benchmark_id: Optional[str] = Form(None),
+    sample_id: Optional[str] = Form(None),
     archivo_audio: Optional[UploadFile] = File(None),
 ):
     tipo_entrada = tipo_entrada.lower().strip()
+    benchmark_id_final, sample_id_final = _generar_identificadores_benchmark(
+        caso_id=caso_id,
+        benchmark_id=benchmark_id,
+        sample_id=sample_id,
+    )
     texto_procesado = ""
 
     if tipo_entrada == "texto":
@@ -260,6 +334,8 @@ async def evaluar_langgraph(
             caso_id=caso_id,
             tipo_entrada="texto",
             texto=texto_procesado,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
         )
 
     elif tipo_entrada == "audio":
@@ -280,6 +356,8 @@ async def evaluar_langgraph(
                 tipo_entrada="audio",
                 texto=texto_procesado,
                 ruta_audio=str(temp_path),
+                benchmark_id=benchmark_id_final,
+                sample_id=sample_id_final,
             )
         finally:
             try:
@@ -297,6 +375,8 @@ async def evaluar_langgraph(
             caso_id=caso_id,
             tipo_entrada=tipo_entrada,
             texto=texto_procesado,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
         )
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
@@ -307,9 +387,16 @@ async def evaluar_langchain(
     caso_id: str = Form("caso_001"),
     tipo_entrada: str = Form(...),
     texto: str = Form(""),
+    benchmark_id: Optional[str] = Form(None),
+    sample_id: Optional[str] = Form(None),
     archivo_audio: Optional[UploadFile] = File(None),
 ):
     tipo_entrada = tipo_entrada.lower().strip()
+    benchmark_id_final, sample_id_final = _generar_identificadores_benchmark(
+        caso_id=caso_id,
+        benchmark_id=benchmark_id,
+        sample_id=sample_id,
+    )
     texto_procesado = ""
 
     if tipo_entrada == "texto":
@@ -321,6 +408,8 @@ async def evaluar_langchain(
             caso_id=caso_id,
             tipo_entrada="texto",
             texto=texto_procesado,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
         )
 
     elif tipo_entrada == "audio":
@@ -341,6 +430,8 @@ async def evaluar_langchain(
                 tipo_entrada="audio",
                 texto=texto_procesado,
                 ruta_audio=str(temp_path),
+                benchmark_id=benchmark_id_final,
+                sample_id=sample_id_final,
             )
         finally:
             try:
@@ -358,6 +449,8 @@ async def evaluar_langchain(
             caso_id=caso_id,
             tipo_entrada=tipo_entrada,
             texto=texto_procesado,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
         )
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
@@ -368,9 +461,16 @@ async def evaluar_benchmark(
     caso_id: str = Form("caso_001"),
     tipo_entrada: str = Form(...),
     texto: str = Form(""),
+    benchmark_id: Optional[str] = Form(None),
+    sample_id: Optional[str] = Form(None),
     archivo_audio: Optional[UploadFile] = File(None),
 ):
     tipo_entrada = tipo_entrada.lower().strip()
+    benchmark_id_final, sample_id_final = _generar_identificadores_benchmark(
+        caso_id=caso_id,
+        benchmark_id=benchmark_id,
+        sample_id=sample_id,
+    )
     texto_procesado = ""
 
     if tipo_entrada == "texto":
@@ -396,6 +496,8 @@ async def evaluar_benchmark(
                 tipo_entrada="audio",
                 texto=texto_procesado,
                 ruta_audio=str(temp_path),
+                benchmark_id=benchmark_id_final,
+                sample_id=sample_id_final,
             )
         finally:
             try:
@@ -410,6 +512,8 @@ async def evaluar_benchmark(
         caso_id=caso_id,
         tipo_entrada=tipo_entrada,
         texto=texto_procesado,
+        benchmark_id=benchmark_id_final,
+        sample_id=sample_id_final,
     )
 
     try:
@@ -419,6 +523,8 @@ async def evaluar_benchmark(
             caso_id=caso_id,
             tipo_entrada_original=tipo_entrada,
             texto_procesado=texto_procesado,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
         )
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
