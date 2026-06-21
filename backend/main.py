@@ -530,6 +530,66 @@ async def evaluar_benchmark(
         raise HTTPException(status_code=500, detail=str(error))
 
 
+@app.get("/debug/logs-status")
+def debug_logs_status(benchmark_id: Optional[str] = Query(None, min_length=1)):
+    from backend.services.logs import ARCHIVO_LOG
+
+    if not ARCHIVO_LOG.exists():
+        return {
+            "ok": False,
+            "exists": False,
+            "path": str(ARCHIVO_LOG),
+            "line_count": 0,
+            "benchmark_id": benchmark_id,
+            "message": "El archivo de logs no existe.",
+        }
+
+    try:
+        with open(ARCHIVO_LOG, "r", encoding="utf-8") as f:
+            lines = [line.strip() for line in f if line.strip()]
+    except Exception as error:
+        return {
+            "ok": False,
+            "exists": True,
+            "path": str(ARCHIVO_LOG),
+            "line_count": 0,
+            "benchmark_id": benchmark_id,
+            "message": "No se pudo leer el archivo de logs.",
+            "detail": str(error),
+        }
+
+    events = []
+    matching = []
+
+    for raw in lines[-20:]:
+        try:
+            item = __import__("json").loads(raw)
+        except Exception:
+            continue
+
+        tipo = item.get("tipo", "")
+        datos = item.get("datos", {})
+        event = {
+            "tipo": tipo,
+            "benchmark_id": datos.get("benchmark_id", ""),
+            "sample_id": datos.get("sample_id", ""),
+            "caso_id": datos.get("caso_id", ""),
+        }
+        events.append(event)
+
+        if benchmark_id and datos.get("benchmark_id") == benchmark_id:
+            matching.append(event)
+
+    return {
+        "ok": True,
+        "exists": True,
+        "path": str(ARCHIVO_LOG),
+        "line_count": len(lines),
+        "last_events": events,
+        "matching_benchmark_events": matching,
+        "benchmark_id": benchmark_id,
+    }
+
 @app.get("/api/ragas/live")
 def api_ragas_live(benchmark_id: Optional[str] = Query(None, min_length=1)):
     try:
