@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from backend.services.audio_handler import transcribir_audio
@@ -15,6 +16,7 @@ from backend.services.case_loader import cargar_caso, listar_casos
 from backend.services.feedback import generar_retroalimentacion
 from backend.services.input_handler import normalizar_texto
 from backend.services.logs import registrar_evento
+from backend.services.result_store import append_result, load_results, render_results_html
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -95,6 +97,97 @@ def _transcribir_y_normalizar_audio(archivo_audio: UploadFile) -> tuple[str, Pat
         raise
 
 
+def _guardar_resultado_en_historial(
+    *,
+    caso_id: str,
+    benchmark_id: str,
+    sample_id: str,
+    pipeline: str,
+    answer: str,
+    resultado: Any,
+) -> None:
+    try:
+        if isinstance(resultado, list):
+            for item in resultado:
+                if isinstance(item, dict):
+                    _guardar_resultado_en_historial(
+                        caso_id=caso_id,
+                        benchmark_id=benchmark_id,
+                        sample_id=sample_id,
+                        pipeline=str(item.get("pipeline", pipeline)),
+                        answer=answer,
+                        resultado=item,
+                    )
+            return
+
+        if not isinstance(resultado, dict):
+            return
+
+        evaluacion = resultado.get("evaluacion") or {}
+        if not isinstance(evaluacion, dict):
+            evaluacion = {}
+
+        evaluacion_semantica = resultado.get("evaluacion_semantica") or {}
+        if not isinstance(evaluacion_semantica, dict):
+            evaluacion_semantica = {}
+
+        evaluacion_rubrica = resultado.get("evaluacion_rubrica") or {}
+        if not isinstance(evaluacion_rubrica, dict):
+            evaluacion_rubrica = {}
+
+        retroalimentacion = resultado.get("retroalimentacion") or {}
+        if not isinstance(retroalimentacion, dict):
+            retroalimentacion = {}
+
+        caso = resultado.get("caso")
+        if not isinstance(caso, dict):
+            caso = None
+
+        registro = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "case_id": caso_id,
+            "caso_id": caso_id,
+            "benchmark_id": benchmark_id,
+            "sample_id": sample_id,
+            "pipeline": pipeline,
+            "answer": answer,
+            "case": caso,
+            "score_total": evaluacion.get("puntaje_total") or resultado.get("puntaje_total"),
+            "score_semantic": evaluacion_semantica.get("puntaje_total") or resultado.get("puntaje_semantico"),
+            "score_rubric": evaluacion_rubrica.get("puntaje_total"),
+            "retrieval_score": (
+                evaluacion.get("indice_relevancia_caso")
+                or evaluacion_semantica.get("indice_relevancia_caso")
+                or resultado.get("indice_relevancia_caso")
+            ),
+            "feedback": retroalimentacion.get("resumen") or evaluacion.get("resumen") or "",
+            "response_json": resultado,
+        }
+
+        append_result(registro)
+    except Exception:
+        pass
+
+
+def _guardar_resultado_benchmark(
+    *,
+    caso_id: str,
+    benchmark_id: str,
+    sample_id: str,
+    pipeline: str,
+    answer: str,
+    resultado: Any,
+) -> None:
+    _guardar_resultado_en_historial(
+        caso_id=caso_id,
+        benchmark_id=benchmark_id,
+        sample_id=sample_id,
+        pipeline=pipeline,
+        answer=answer,
+        resultado=resultado,
+    )
+
+
 @app.get("/")
 def raiz():
     return {
@@ -108,6 +201,8 @@ def raiz():
             "/evaluar-langgraph",
             "/evaluar-langchain",
             "/benchmark/evaluar",
+            "/resultados",
+            "/debug/logs-status",
             "/api/ragas/live",
             "/api/ragas/benchmark-daily",
             "/api/ragas/benchmark-daily/{job_id}",
@@ -258,13 +353,24 @@ async def evaluar_entrada(
 
         from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
 
-        return ejecutar_evaluacion_langgraph(
+        resultado = ejecutar_evaluacion_langgraph(
             caso_id=caso_id,
             tipo_entrada=tipo_entrada,
             texto=contenido,
             benchmark_id=benchmark_id_final,
             sample_id=sample_id_final,
         )
+
+        _guardar_resultado_benchmark(
+            caso_id=caso_id,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
+            pipeline="langgraph",
+            answer=contenido,
+            resultado=resultado,
+        )
+
+        return resultado
 
     if archivo_audio is None:
         raise HTTPException(
@@ -293,13 +399,24 @@ async def evaluar_entrada(
 
         from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
 
-        return ejecutar_evaluacion_langgraph(
+        resultado = ejecutar_evaluacion_langgraph(
             caso_id=caso_id,
             tipo_entrada=tipo_entrada,
             texto=contenido,
             benchmark_id=benchmark_id_final,
             sample_id=sample_id_final,
         )
+
+        _guardar_resultado_benchmark(
+            caso_id=caso_id,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
+            pipeline="langgraph",
+            answer=contenido,
+            resultado=resultado,
+        )
+
+        return resultado
     finally:
         try:
             if temp_path and temp_path.exists():
@@ -371,13 +488,24 @@ async def evaluar_langgraph(
     try:
         from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
 
-        return ejecutar_evaluacion_langgraph(
+        resultado = ejecutar_evaluacion_langgraph(
             caso_id=caso_id,
             tipo_entrada=tipo_entrada,
             texto=texto_procesado,
             benchmark_id=benchmark_id_final,
             sample_id=sample_id_final,
         )
+
+        _guardar_resultado_benchmark(
+            caso_id=caso_id,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
+            pipeline="langgraph",
+            answer=texto_procesado,
+            resultado=resultado,
+        )
+
+        return resultado
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
 
@@ -445,13 +573,24 @@ async def evaluar_langchain(
     try:
         from backend.services.langchain_bridge import ejecutar_evaluacion_langchain
 
-        return ejecutar_evaluacion_langchain(
+        resultado = ejecutar_evaluacion_langchain(
             caso_id=caso_id,
             tipo_entrada=tipo_entrada,
             texto=texto_procesado,
             benchmark_id=benchmark_id_final,
             sample_id=sample_id_final,
         )
+
+        _guardar_resultado_benchmark(
+            caso_id=caso_id,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
+            pipeline="langchain",
+            answer=texto_procesado,
+            resultado=resultado,
+        )
+
+        return resultado
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
 
@@ -519,15 +658,51 @@ async def evaluar_benchmark(
     try:
         from backend.services.benchmark_orchestrator import ejecutar_benchmark_dual
 
-        return ejecutar_benchmark_dual(
+        resultado = ejecutar_benchmark_dual(
             caso_id=caso_id,
             tipo_entrada_original=tipo_entrada,
             texto_procesado=texto_procesado,
             benchmark_id=benchmark_id_final,
             sample_id=sample_id_final,
         )
+
+        _guardar_resultado_benchmark(
+            caso_id=caso_id,
+            benchmark_id=benchmark_id_final,
+            sample_id=sample_id_final,
+            pipeline="benchmark",
+            answer=texto_procesado,
+            resultado=resultado,
+        )
+
+        return resultado
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
+
+
+@app.get("/resultados")
+def obtener_resultados(
+    case_id: str | None = None,
+    benchmark_id: str | None = None,
+    pipeline: str | None = None,
+    limit: int | None = None,
+    format: str = "html",
+):
+    rows = load_results(
+        case_id=case_id,
+        benchmark_id=benchmark_id,
+        pipeline=pipeline,
+        limit=limit,
+    )
+
+    if format.lower() == "json":
+        return {
+            "ok": True,
+            "count": len(rows),
+            "rows": rows,
+        }
+
+    return HTMLResponse(render_results_html(rows))
 
 
 @app.get("/debug/logs-status")
@@ -589,6 +764,7 @@ def debug_logs_status(benchmark_id: Optional[str] = Query(None, min_length=1)):
         "matching_benchmark_events": matching,
         "benchmark_id": benchmark_id,
     }
+
 
 @app.get("/api/ragas/live")
 def api_ragas_live(benchmark_id: Optional[str] = Query(None, min_length=1)):
