@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
 from backend.services.audio_handler import transcribir_audio
@@ -16,7 +16,13 @@ from backend.services.case_loader import cargar_caso, listar_casos
 from backend.services.feedback import generar_retroalimentacion
 from backend.services.input_handler import normalizar_texto
 from backend.services.logs import registrar_evento
-from backend.services.result_store import append_result, load_results, render_results_html
+from backend.services.result_store import (
+    append_result,
+    load_results,
+    render_results_csv,
+    render_results_html,
+    render_results_jsonl,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -683,24 +689,48 @@ async def evaluar_benchmark(
 @app.get("/resultados")
 def obtener_resultados(
     case_id: str | None = None,
+    caso_id: str | None = None,
     benchmark_id: str | None = None,
+    sample_id: str | None = None,
     pipeline: str | None = None,
     limit: int | None = None,
     format: str = "html",
 ):
     rows = load_results(
         case_id=case_id,
+        caso_id=caso_id,
         benchmark_id=benchmark_id,
+        sample_id=sample_id,
         pipeline=pipeline,
         limit=limit,
     )
 
-    if format.lower() == "json":
+    fmt = format.lower().strip()
+
+    if fmt == "json":
         return {
             "ok": True,
             "count": len(rows),
             "rows": rows,
         }
+
+    if fmt == "csv":
+        return Response(
+            content=render_results_csv(rows),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'inline; filename="resultados.csv"'
+            },
+        )
+
+    if fmt == "jsonl":
+        return Response(
+            content=render_results_jsonl(rows),
+            media_type="application/jsonl; charset=utf-8",
+            headers={
+                "Content-Disposition": 'inline; filename="resultados.jsonl"'
+            },
+        )
 
     return HTMLResponse(render_results_html(rows))
 

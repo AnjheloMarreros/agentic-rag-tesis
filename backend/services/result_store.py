@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import csv
 import html
+import io
 import json
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from google.api_core.exceptions import PreconditionFailed
 from google.cloud import storage
 
 
@@ -46,21 +50,38 @@ def append_result(record: dict[str, Any]) -> None:
     line = json.dumps(payload, ensure_ascii=False)
 
     blob = _get_blob()
-    current = ""
 
-    if blob.exists():
-        current = blob.download_as_text(encoding="utf-8").strip()
+    for attempt in range(5):
+        try:
+            if blob.exists():
+                blob.reload()
+                generation = int(blob.generation or 0)
+                current = blob.download_as_text(encoding="utf-8").strip()
+            else:
+                generation = 0
+                current = ""
 
-    if current:
-        current += "\n"
+            if current:
+                current += "\n"
+            current += line + "\n"
 
-    current += line + "\n"
-    blob.upload_from_string(current, content_type="application/jsonl; charset=utf-8")
+            blob.upload_from_string(
+                current,
+                content_type="application/jsonl; charset=utf-8",
+                if_generation_match=generation,
+            )
+            return
+        except PreconditionFailed:
+            if attempt >= 4:
+                raise
+            time.sleep(0.2 * (attempt + 1))
 
 
 def load_results(
     case_id: Optional[str] = None,
+    caso_id: Optional[str] = None,
     benchmark_id: Optional[str] = None,
+    sample_id: Optional[str] = None,
     pipeline: Optional[str] = None,
     limit: Optional[int] = None,
 ) -> list[dict[str, Any]]:
@@ -82,10 +103,18 @@ def load_results(
         except Exception:
             continue
 
-        if case_id and item.get("case_id") != case_id:
+        row_case_id = item.get("case_id") or item.get("caso_id")
+
+        if case_id and row_case_id != case_id:
+            continue
+
+        if caso_id and row_case_id != caso_id:
             continue
 
         if benchmark_id and item.get("benchmark_id") != benchmark_id:
+            continue
+
+        if sample_id and item.get("sample_id") != sample_id:
             continue
 
         if pipeline and item.get("pipeline") != pipeline:
@@ -101,6 +130,14 @@ def load_results(
     return rows
 
 
+def _row_value(row: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = row.get(key)
+        if value is not None and value != "":
+            return str(value)
+    return ""
+
+
 def render_results_html(rows: list[dict[str, Any]]) -> str:
     def esc(value: Any) -> str:
         if value is None:
@@ -110,24 +147,28 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
     cards: list[str] = []
 
     for row in rows:
-        answer = esc(row.get("answer") or row.get("entrada") or row.get("input") or "")
-        feedback = esc(row.get("feedback") or row.get("retroalimentacion") or "")
-        score_total = esc(row.get("score_total") or row.get("puntaje_total") or "")
-        score_semantic = esc(row.get("score_semantic") or row.get("puntaje_semantico") or "")
-        case_id = esc(row.get("case_id") or "")
-        pipeline = esc(row.get("pipeline") or "")
-        benchmark_id = esc(row.get("benchmark_id") or "")
-        timestamp = esc(row.get("timestamp") or "")
+        answer = esc(_row_value(row, "answer", "entrada", "input", "response"))
+        feedback = esc(_row_value(row, "feedback", "retroalimentacion"))
+        score_total = esc(_row_value(row, "score_total", "puntaje_total"))
+        score_semantic = esc(_row_value(row, "score_semantic", "puntaje_semantico"))
+        score_rubric = esc(_row_value(row, "score_rubric", "puntaje_rubrica"))
+        case_id = esc(_row_value(row, "case_id", "caso_id"))
+        sample_id = esc(_row_value(row, "sample_id"))
+        pipeline = esc(_row_value(row, "pipeline"))
+        benchmark_id = esc(_row_value(row, "benchmark_id"))
+        timestamp = esc(_row_value(row, "timestamp"))
 
         cards.append(
             f"""
             <tr>
               <td>{timestamp}</td>
               <td>{case_id}</td>
+              <td>{sample_id}</td>
               <td>{pipeline}</td>
               <td>{benchmark_id}</td>
               <td>{score_total}</td>
               <td>{score_semantic}</td>
+              <td>{score_rubric}</td>
               <td style="max-width:340px;white-space:pre-wrap">{answer}</td>
               <td style="max-width:360px;white-space:pre-wrap">{feedback}</td>
             </tr>
@@ -135,7 +176,7 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
         )
 
     body = "\n".join(cards) if cards else """
-        <tr><td colspan="8" style="text-align:center;padding:24px;">Sin resultados.</td></tr>
+        <tr><td colspan="10" style="text-align:center;padding:24px;">Sin resultados.</td></tr>
     """
 
     return f"""
@@ -199,10 +240,12 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
             <tr>
               <th>Fecha</th>
               <th>Caso</th>
+              <th>Sample</th>
               <th>Pipeline</th>
               <th>Benchmark</th>
               <th>Puntaje total</th>
               <th>Puntaje semántico</th>
+              <th>Puntaje rúbrica</th>
               <th>Respuesta</th>
               <th>Retroalimentación</th>
             </tr>
@@ -215,3 +258,48 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
     </body>
     </html>
     """
+
+
+def render_results_csv(rows: list[dict[str, Any]]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow(
+        [
+            "timestamp",
+            "case_id",
+            "sample_id",
+            "pipeline",
+            "benchmark_id",
+            "score_total",
+            "score_semantic",
+            "score_rubric",
+            "answer",
+            "feedback",
+        ]
+    )
+
+    for row in rows:
+        writer.writerow(
+            [
+                _row_value(row, "timestamp"),
+                _row_value(row, "case_id", "caso_id"),
+                _row_value(row, "sample_id"),
+                _row_value(row, "pipeline"),
+                _row_value(row, "benchmark_id"),
+                _row_value(row, "score_total", "puntaje_total"),
+                _row_value(row, "score_semantic", "puntaje_semantico"),
+                _row_value(row, "score_rubric", "puntaje_rubrica"),
+                _row_value(row, "answer", "entrada", "input", "response"),
+                _row_value(row, "feedback", "retroalimentacion"),
+            ]
+        )
+
+    return output.getvalue()
+
+
+def render_results_jsonl(rows: list[dict[str, Any]]) -> str:
+    lines = []
+    for row in rows:
+        lines.append(json.dumps(_json_safe(row), ensure_ascii=False))
+    return "\n".join(lines) + ("\n" if lines else "")
