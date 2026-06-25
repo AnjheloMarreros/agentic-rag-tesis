@@ -116,15 +116,93 @@ def _resultado_cuerpo(resultado: Any) -> dict[str, Any]:
 
 
 def _extraer_componentes_benchmark(resultado: Any) -> dict[str, dict[str, Any]]:
-    if not isinstance(resultado, dict):
-        return {}
-
     componentes: dict[str, dict[str, Any]] = {}
-    for clave in ("benchmark", "langgraph", "langchain"):
-        valor = resultado.get(clave)
-        if isinstance(valor, dict):
-            componentes[clave] = valor
+
+    if not isinstance(resultado, dict):
+        return componentes
+
+    candidatos = [resultado]
+
+    resultado_final = resultado.get("resultado_final")
+    if isinstance(resultado_final, dict):
+        candidatos.append(resultado_final)
+
+    response_json = resultado.get("response_json")
+    if isinstance(response_json, dict):
+        candidatos.append(response_json)
+
+    for candidato in candidatos:
+        for clave in ("benchmark", "langgraph", "langchain"):
+            valor = candidato.get(clave)
+            if isinstance(valor, dict):
+                componentes[clave] = valor
+
     return componentes
+
+
+def _guardar_resultado_benchmark(
+    *,
+    caso_id: str,
+    benchmark_id: str,
+    sample_id: str,
+    pipeline: str,
+    answer: str,
+    resultado: Any,
+) -> None:
+    try:
+        componentes = _extraer_componentes_benchmark(resultado)
+
+        if componentes:
+            if "benchmark" in componentes:
+                _guardar_resultado_en_historial(
+                    caso_id=caso_id,
+                    benchmark_id=benchmark_id,
+                    sample_id=sample_id,
+                    pipeline="benchmark",
+                    answer=answer,
+                    resultado=componentes["benchmark"],
+                )
+            elif pipeline == "benchmark":
+                _guardar_resultado_en_historial(
+                    caso_id=caso_id,
+                    benchmark_id=benchmark_id,
+                    sample_id=sample_id,
+                    pipeline="benchmark",
+                    answer=answer,
+                    resultado=resultado,
+                )
+
+            if "langgraph" in componentes:
+                _guardar_resultado_en_historial(
+                    caso_id=caso_id,
+                    benchmark_id=benchmark_id,
+                    sample_id=sample_id,
+                    pipeline="langgraph",
+                    answer=answer,
+                    resultado=componentes["langgraph"],
+                )
+
+            if "langchain" in componentes:
+                _guardar_resultado_en_historial(
+                    caso_id=caso_id,
+                    benchmark_id=benchmark_id,
+                    sample_id=sample_id,
+                    pipeline="langchain",
+                    answer=answer,
+                    resultado=componentes["langchain"],
+                )
+            return
+
+        _guardar_resultado_en_historial(
+            caso_id=caso_id,
+            benchmark_id=benchmark_id,
+            sample_id=sample_id,
+            pipeline=pipeline,
+            answer=answer,
+            resultado=resultado,
+        )
+    except Exception:
+        pass
 
 
 def _guardar_resultado_en_historial(
@@ -233,71 +311,6 @@ def _guardar_resultado_en_historial(
         }
 
         append_result(registro)
-    except Exception:
-        pass
-
-
-def _guardar_resultado_benchmark(
-    *,
-    caso_id: str,
-    benchmark_id: str,
-    sample_id: str,
-    pipeline: str,
-    answer: str,
-    resultado: Any,
-) -> None:
-    try:
-        componentes = _extraer_componentes_benchmark(resultado)
-
-        if componentes:
-            if "benchmark" in componentes:
-                _guardar_resultado_en_historial(
-                    caso_id=caso_id,
-                    benchmark_id=benchmark_id,
-                    sample_id=sample_id,
-                    pipeline="benchmark",
-                    answer=answer,
-                    resultado=componentes["benchmark"],
-                )
-            else:
-                _guardar_resultado_en_historial(
-                    caso_id=caso_id,
-                    benchmark_id=benchmark_id,
-                    sample_id=sample_id,
-                    pipeline="benchmark",
-                    answer=answer,
-                    resultado=resultado,
-                )
-
-            if "langgraph" in componentes:
-                _guardar_resultado_en_historial(
-                    caso_id=caso_id,
-                    benchmark_id=benchmark_id,
-                    sample_id=sample_id,
-                    pipeline="langgraph",
-                    answer=answer,
-                    resultado=componentes["langgraph"],
-                )
-
-            if "langchain" in componentes:
-                _guardar_resultado_en_historial(
-                    caso_id=caso_id,
-                    benchmark_id=benchmark_id,
-                    sample_id=sample_id,
-                    pipeline="langchain",
-                    answer=answer,
-                    resultado=componentes["langchain"],
-                )
-            return
-
-        _guardar_resultado_en_historial(
-            caso_id=caso_id,
-            benchmark_id=benchmark_id,
-            sample_id=sample_id,
-            pipeline=pipeline,
-            answer=answer,
-            resultado=resultado,
-        )
     except Exception:
         pass
 
