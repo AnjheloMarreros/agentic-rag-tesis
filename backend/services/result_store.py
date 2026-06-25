@@ -9,6 +9,8 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from google.cloud import storage
+
 
 RESULTS_BUCKET = os.getenv("RESULTS_BUCKET", "").strip()
 RESULTS_OBJECT = os.getenv("RESULTS_OBJECT", "results/index.jsonl").strip()
@@ -30,12 +32,6 @@ def _json_safe(value: Any) -> Any:
 
 
 def _get_storage_client():
-    try:
-        from google.cloud import storage
-    except Exception as exc:
-        raise RuntimeError(
-            "Falta instalar 'google-cloud-storage' en requirements.txt."
-        ) from exc
     return storage.Client()
 
 
@@ -45,8 +41,7 @@ def _get_blob():
             "RESULTS_BUCKET no está configurado. Debes definir el bucket de Cloud Storage."
         )
 
-    storage = _get_storage_client()
-    client = storage
+    client = _get_storage_client()
     bucket = client.bucket(RESULTS_BUCKET)
     return bucket.blob(RESULTS_OBJECT)
 
@@ -54,11 +49,9 @@ def _get_blob():
 def append_result(record: dict[str, Any]) -> None:
     payload = _json_safe(dict(record))
     payload.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
-
     line = json.dumps(payload, ensure_ascii=False)
 
     blob = _get_blob()
-    current = ""
 
     for attempt in range(5):
         try:
@@ -139,6 +132,133 @@ def _row_value(row: dict[str, Any], *keys: str) -> str:
     return ""
 
 
+def _metric_cell(row: dict[str, Any], key: str) -> str:
+    value = row.get(key)
+    if value is None or value == "":
+        return ""
+    return str(value)
+
+
+def render_result_detail_html(row: dict[str, Any]) -> str:
+    pretty = json.dumps(_json_safe(row), ensure_ascii=False, indent=2)
+
+    def esc(value: Any) -> str:
+        if value is None:
+            return ""
+        return html.escape(str(value))
+
+    case_id = esc(_row_value(row, "case_id", "caso_id"))
+    sample_id = esc(_row_value(row, "sample_id"))
+    benchmark_id = esc(_row_value(row, "benchmark_id"))
+    pipeline = esc(_row_value(row, "pipeline"))
+    timestamp = esc(_row_value(row, "timestamp"))
+    score_total = esc(_row_value(row, "score_total", "puntaje_total"))
+    score_semantic = esc(_row_value(row, "score_semantic", "puntaje_semantico"))
+    score_rubric = esc(_row_value(row, "score_rubric", "puntaje_rubrica"))
+    relevance_case = esc(_row_value(row, "indice_relevancia_caso", "relevance_case"))
+    relevance_lexica = esc(_row_value(row, "indice_relevancia_lexica", "relevance_lexica"))
+    faithfulness = esc(_row_value(row, "faithfulness"))
+    answer_relevancy = esc(_row_value(row, "answer_relevancy"))
+    answer = esc(_row_value(row, "answer", "entrada", "input", "response"))
+    feedback = esc(_row_value(row, "feedback", "retroalimentacion"))
+
+    return f"""
+    <!doctype html>
+    <html lang="es">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Detalle del resultado</title>
+      <style>
+        body {{
+          font-family: Arial, sans-serif;
+          margin: 0;
+          padding: 24px;
+          background: #f8fafc;
+          color: #111827;
+        }}
+        .card {{
+          background: white;
+          border: 1px solid #e5e7eb;
+          border-radius: 16px;
+          padding: 20px;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+          margin-bottom: 18px;
+        }}
+        .grid {{
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+          gap: 12px;
+        }}
+        .item {{
+          border: 1px solid #e5e7eb;
+          border-radius: 12px;
+          padding: 12px;
+          background: #fafafa;
+        }}
+        .label {{
+          font-size: 12px;
+          color: #6b7280;
+          margin-bottom: 4px;
+        }}
+        .value {{
+          font-size: 14px;
+          word-break: break-word;
+        }}
+        pre {{
+          white-space: pre-wrap;
+          word-break: break-word;
+          background: #0f172a;
+          color: #e2e8f0;
+          padding: 16px;
+          border-radius: 12px;
+          overflow-x: auto;
+        }}
+        a {{
+          color: #2563eb;
+          text-decoration: none;
+        }}
+      </style>
+    </head>
+    <body>
+      <p><a href="/resultados?format=html">← Volver a resultados</a></p>
+      <div class="card">
+        <h1>Detalle del resultado</h1>
+        <div class="grid">
+          <div class="item"><div class="label">Fecha</div><div class="value">{timestamp}</div></div>
+          <div class="item"><div class="label">Caso</div><div class="value">{case_id}</div></div>
+          <div class="item"><div class="label">Sample</div><div class="value">{sample_id}</div></div>
+          <div class="item"><div class="label">Benchmark</div><div class="value">{benchmark_id}</div></div>
+          <div class="item"><div class="label">Pipeline</div><div class="value">{pipeline}</div></div>
+          <div class="item"><div class="label">Puntaje total</div><div class="value">{score_total}</div></div>
+          <div class="item"><div class="label">Puntaje semántico</div><div class="value">{score_semantic}</div></div>
+          <div class="item"><div class="label">Puntaje rúbrica</div><div class="value">{score_rubric}</div></div>
+          <div class="item"><div class="label">Relevancia con el caso</div><div class="value">{relevance_case}</div></div>
+          <div class="item"><div class="label">Relevancia léxica</div><div class="value">{relevance_lexica}</div></div>
+          <div class="item"><div class="label">Faithfulness</div><div class="value">{faithfulness}</div></div>
+          <div class="item"><div class="label">Answer relevancy</div><div class="value">{answer_relevancy}</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Respuesta</h2>
+        <p style="white-space:pre-wrap">{answer}</p>
+      </div>
+
+      <div class="card">
+        <h2>Retroalimentación</h2>
+        <p style="white-space:pre-wrap">{feedback}</p>
+      </div>
+
+      <div class="card">
+        <h2>Registro completo</h2>
+        <pre>{html.escape(pretty)}</pre>
+      </div>
+    </body>
+    </html>
+    """
+
+
 def render_results_html(rows: list[dict[str, Any]]) -> str:
     def esc(value: Any) -> str:
         if value is None:
@@ -147,17 +267,23 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
 
     cards: list[str] = []
 
-    for row in rows:
+    for idx, row in enumerate(rows):
         answer = esc(_row_value(row, "answer", "entrada", "input", "response"))
         feedback = esc(_row_value(row, "feedback", "retroalimentacion"))
         score_total = esc(_row_value(row, "score_total", "puntaje_total"))
         score_semantic = esc(_row_value(row, "score_semantic", "puntaje_semantico"))
         score_rubric = esc(_row_value(row, "score_rubric", "puntaje_rubrica"))
+        relevance_case = esc(_row_value(row, "indice_relevancia_caso", "relevance_case"))
+        relevance_lexica = esc(_row_value(row, "indice_relevancia_lexica", "relevance_lexica"))
+        faithfulness = esc(_row_value(row, "faithfulness"))
+        answer_relevancy = esc(_row_value(row, "answer_relevancy"))
         case_id = esc(_row_value(row, "case_id", "caso_id"))
         sample_id = esc(_row_value(row, "sample_id"))
         pipeline = esc(_row_value(row, "pipeline"))
         benchmark_id = esc(_row_value(row, "benchmark_id"))
         timestamp = esc(_row_value(row, "timestamp"))
+
+        detail_link = f"/resultados?format=html&detail_index={idx}"
 
         cards.append(
             f"""
@@ -170,14 +296,19 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
               <td>{score_total}</td>
               <td>{score_semantic}</td>
               <td>{score_rubric}</td>
+              <td>{relevance_case}</td>
+              <td>{relevance_lexica}</td>
+              <td>{faithfulness}</td>
+              <td>{answer_relevancy}</td>
               <td style="max-width:340px;white-space:pre-wrap">{answer}</td>
               <td style="max-width:360px;white-space:pre-wrap">{feedback}</td>
+              <td><a href="{detail_link}">Ver detalle</a></td>
             </tr>
             """
         )
 
     body = "\n".join(cards) if cards else """
-        <tr><td colspan="10" style="text-align:center;padding:24px;">Sin resultados.</td></tr>
+        <tr><td colspan="15" style="text-align:center;padding:24px;">Sin resultados.</td></tr>
     """
 
     return f"""
@@ -247,8 +378,13 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
               <th>Puntaje total</th>
               <th>Puntaje semántico</th>
               <th>Puntaje rúbrica</th>
+              <th>Relevancia caso</th>
+              <th>Relevancia léxica</th>
+              <th>Faithfulness</th>
+              <th>Answer relevancy</th>
               <th>Respuesta</th>
               <th>Retroalimentación</th>
+              <th>Detalle</th>
             </tr>
           </thead>
           <tbody>
@@ -275,6 +411,10 @@ def render_results_csv(rows: list[dict[str, Any]]) -> str:
             "score_total",
             "score_semantic",
             "score_rubric",
+            "relevance_case",
+            "relevance_lexica",
+            "faithfulness",
+            "answer_relevancy",
             "answer",
             "feedback",
         ]
@@ -291,6 +431,10 @@ def render_results_csv(rows: list[dict[str, Any]]) -> str:
                 _row_value(row, "score_total", "puntaje_total"),
                 _row_value(row, "score_semantic", "puntaje_semantico"),
                 _row_value(row, "score_rubric", "puntaje_rubrica"),
+                _row_value(row, "indice_relevancia_caso", "relevance_case"),
+                _row_value(row, "indice_relevancia_lexica", "relevance_lexica"),
+                _row_value(row, "faithfulness"),
+                _row_value(row, "answer_relevancy"),
                 _row_value(row, "answer", "entrada", "input", "response"),
                 _row_value(row, "feedback", "retroalimentacion"),
             ]
