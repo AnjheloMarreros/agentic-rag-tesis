@@ -9,7 +9,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from google.api_core.exceptions import PreconditionFailed
 from google.cloud import storage
 
 
@@ -46,7 +45,6 @@ def _get_blob():
 def append_result(record: dict[str, Any]) -> None:
     payload = _json_safe(dict(record))
     payload.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
-
     line = json.dumps(payload, ensure_ascii=False)
 
     blob = _get_blob()
@@ -54,11 +52,8 @@ def append_result(record: dict[str, Any]) -> None:
     for attempt in range(5):
         try:
             if blob.exists():
-                blob.reload()
-                generation = int(blob.generation or 0)
                 current = blob.download_as_text(encoding="utf-8").strip()
             else:
-                generation = 0
                 current = ""
 
             if current:
@@ -68,10 +63,9 @@ def append_result(record: dict[str, Any]) -> None:
             blob.upload_from_string(
                 current,
                 content_type="application/jsonl; charset=utf-8",
-                if_generation_match=generation,
             )
             return
-        except PreconditionFailed:
+        except Exception:
             if attempt >= 4:
                 raise
             time.sleep(0.2 * (attempt + 1))
