@@ -124,17 +124,31 @@ def load_results(
     return rows
 
 
-def _row_value(row: dict[str, Any], *keys: str) -> str:
-    for key in keys:
-        value = row.get(key)
-        if value is not None and value != "":
-            return str(value)
-    return ""
+def _pick(row: dict[str, Any], *paths: Any, default: str = "") -> Any:
+    for path in paths:
+        if isinstance(path, str):
+            value = row.get(path)
+            if value not in (None, "", [], {}):
+                return value
+            continue
+
+        if isinstance(path, tuple):
+            current: Any = row
+            ok = True
+            for key in path:
+                if not isinstance(current, dict) or key not in current:
+                    ok = False
+                    break
+                current = current[key]
+            if ok and current not in (None, "", [], {}):
+                return current
+
+    return default
 
 
-def _metric_cell(row: dict[str, Any], key: str) -> str:
-    value = row.get(key)
-    if value is None or value == "":
+def _row_value(row: dict[str, Any], *keys: Any) -> str:
+    value = _pick(row, *keys, default="")
+    if value is None:
         return ""
     return str(value)
 
@@ -152,13 +166,66 @@ def render_result_detail_html(row: dict[str, Any]) -> str:
     benchmark_id = esc(_row_value(row, "benchmark_id"))
     pipeline = esc(_row_value(row, "pipeline"))
     timestamp = esc(_row_value(row, "timestamp"))
-    score_total = esc(_row_value(row, "score_total", "puntaje_total"))
-    score_semantic = esc(_row_value(row, "score_semantic", "puntaje_semantico"))
-    score_rubric = esc(_row_value(row, "score_rubric", "puntaje_rubrica"))
-    relevance_case = esc(_row_value(row, "indice_relevancia_caso", "relevance_case"))
-    relevance_lexica = esc(_row_value(row, "indice_relevancia_lexica", "relevance_lexica"))
-    faithfulness = esc(_row_value(row, "faithfulness"))
-    answer_relevancy = esc(_row_value(row, "answer_relevancy"))
+
+    score_total = esc(
+        _row_value(
+            row,
+            "score_total",
+            ("evaluacion", "puntaje_total"),
+            ("evaluacion_semantica", "puntaje_total"),
+            ("summary", "score_total"),
+        )
+    )
+    score_semantic = esc(
+        _row_value(
+            row,
+            "score_semantic",
+            ("evaluacion_semantica", "puntaje_total"),
+            ("summary", "puntaje_semantico"),
+        )
+    )
+    score_rubric = esc(
+        _row_value(
+            row,
+            "score_rubric",
+            ("evaluacion_rubrica", "puntaje_total"),
+            ("summary", "puntaje_rubrica"),
+        )
+    )
+    relevance_case = esc(
+        _row_value(
+            row,
+            "indice_relevancia_caso",
+            ("evaluacion", "indice_relevancia_caso"),
+            ("evaluacion_semantica", "indice_relevancia_caso"),
+            ("summary", "indice_relevancia_caso"),
+        )
+    )
+    relevance_lexica = esc(
+        _row_value(
+            row,
+            "indice_relevancia_lexica",
+            ("evaluacion_semantica", "indice_relevancia_lexica"),
+            ("summary", "indice_relevancia_lexica"),
+        )
+    )
+    faithfulness = esc(
+        _row_value(
+            row,
+            "faithfulness",
+            ("summary", "faithfulness"),
+            ("response_json", "summary", "faithfulness"),
+        )
+    )
+    answer_relevancy = esc(
+        _row_value(
+            row,
+            "answer_relevancy",
+            ("summary", "answer_relevancy"),
+            ("response_json", "summary", "answer_relevancy"),
+        )
+    )
+
     answer = esc(_row_value(row, "answer", "entrada", "input", "response"))
     feedback = esc(_row_value(row, "feedback", "retroalimentacion"))
 
@@ -222,6 +289,7 @@ def render_result_detail_html(row: dict[str, Any]) -> str:
     </head>
     <body>
       <p><a href="/resultados?format=html">← Volver a resultados</a></p>
+
       <div class="card">
         <h1>Detalle del resultado</h1>
         <div class="grid">
@@ -270,20 +338,70 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
     for idx, row in enumerate(rows):
         answer = esc(_row_value(row, "answer", "entrada", "input", "response"))
         feedback = esc(_row_value(row, "feedback", "retroalimentacion"))
-        score_total = esc(_row_value(row, "score_total", "puntaje_total"))
-        score_semantic = esc(_row_value(row, "score_semantic", "puntaje_semantico"))
-        score_rubric = esc(_row_value(row, "score_rubric", "puntaje_rubrica"))
-        relevance_case = esc(_row_value(row, "indice_relevancia_caso", "relevance_case"))
-        relevance_lexica = esc(_row_value(row, "indice_relevancia_lexica", "relevance_lexica"))
-        faithfulness = esc(_row_value(row, "faithfulness"))
-        answer_relevancy = esc(_row_value(row, "answer_relevancy"))
+        score_total = esc(
+            _row_value(
+                row,
+                "score_total",
+                ("evaluacion", "puntaje_total"),
+                ("summary", "puntaje_total"),
+            )
+        )
+        score_semantic = esc(
+            _row_value(
+                row,
+                "score_semantic",
+                ("evaluacion_semantica", "puntaje_total"),
+                ("summary", "puntaje_semantico"),
+            )
+        )
+        score_rubric = esc(
+            _row_value(
+                row,
+                "score_rubric",
+                ("evaluacion_rubrica", "puntaje_total"),
+                ("summary", "puntaje_rubrica"),
+            )
+        )
+        relevance_case = esc(
+            _row_value(
+                row,
+                "indice_relevancia_caso",
+                ("evaluacion", "indice_relevancia_caso"),
+                ("evaluacion_semantica", "indice_relevancia_caso"),
+                ("summary", "indice_relevancia_caso"),
+            )
+        )
+        relevance_lexica = esc(
+            _row_value(
+                row,
+                "indice_relevancia_lexica",
+                ("evaluacion_semantica", "indice_relevancia_lexica"),
+                ("summary", "indice_relevancia_lexica"),
+            )
+        )
+        faithfulness = esc(
+            _row_value(
+                row,
+                "faithfulness",
+                ("summary", "faithfulness"),
+                ("response_json", "summary", "faithfulness"),
+            )
+        )
+        answer_relevancy = esc(
+            _row_value(
+                row,
+                "answer_relevancy",
+                ("summary", "answer_relevancy"),
+                ("response_json", "summary", "answer_relevancy"),
+            )
+        )
         case_id = esc(_row_value(row, "case_id", "caso_id"))
         sample_id = esc(_row_value(row, "sample_id"))
         pipeline = esc(_row_value(row, "pipeline"))
         benchmark_id = esc(_row_value(row, "benchmark_id"))
         timestamp = esc(_row_value(row, "timestamp"))
 
-        detail_link = f"/resultados?format=html&detail_index={idx}"
+        detail_link = f"/resultados?detail_index={idx}"
 
         cards.append(
             f"""
@@ -428,13 +546,22 @@ def render_results_csv(rows: list[dict[str, Any]]) -> str:
                 _row_value(row, "sample_id"),
                 _row_value(row, "pipeline"),
                 _row_value(row, "benchmark_id"),
-                _row_value(row, "score_total", "puntaje_total"),
-                _row_value(row, "score_semantic", "puntaje_semantico"),
-                _row_value(row, "score_rubric", "puntaje_rubrica"),
-                _row_value(row, "indice_relevancia_caso", "relevance_case"),
-                _row_value(row, "indice_relevancia_lexica", "relevance_lexica"),
-                _row_value(row, "faithfulness"),
-                _row_value(row, "answer_relevancy"),
+                _row_value(row, "score_total", ("evaluacion", "puntaje_total")),
+                _row_value(row, "score_semantic", ("evaluacion_semantica", "puntaje_total")),
+                _row_value(row, "score_rubric", ("evaluacion_rubrica", "puntaje_total")),
+                _row_value(
+                    row,
+                    "indice_relevancia_caso",
+                    ("evaluacion", "indice_relevancia_caso"),
+                    ("evaluacion_semantica", "indice_relevancia_caso"),
+                ),
+                _row_value(
+                    row,
+                    "indice_relevancia_lexica",
+                    ("evaluacion_semantica", "indice_relevancia_lexica"),
+                ),
+                _row_value(row, "faithfulness", ("summary", "faithfulness")),
+                _row_value(row, "answer_relevancy", ("summary", "answer_relevancy")),
                 _row_value(row, "answer", "entrada", "input", "response"),
                 _row_value(row, "feedback", "retroalimentacion"),
             ]

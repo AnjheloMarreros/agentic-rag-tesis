@@ -104,6 +104,29 @@ def _transcribir_y_normalizar_audio(archivo_audio: UploadFile) -> tuple[str, Pat
         raise
 
 
+def _resultado_cuerpo(resultado: Any) -> dict[str, Any]:
+    if not isinstance(resultado, dict):
+        return {}
+
+    resultado_final = resultado.get("resultado_final")
+    if isinstance(resultado_final, dict):
+        return resultado_final
+
+    return resultado
+
+
+def _extraer_componentes_benchmark(resultado: Any) -> dict[str, dict[str, Any]]:
+    if not isinstance(resultado, dict):
+        return {}
+
+    componentes: dict[str, dict[str, Any]] = {}
+    for clave in ("benchmark", "langgraph", "langchain"):
+        valor = resultado.get(clave)
+        if isinstance(valor, dict):
+            componentes[clave] = valor
+    return componentes
+
+
 def _guardar_resultado_en_historial(
     *,
     caso_id: str,
@@ -130,25 +153,43 @@ def _guardar_resultado_en_historial(
         if not isinstance(resultado, dict):
             return
 
-        evaluacion = resultado.get("evaluacion") or {}
+        outer = resultado
+        body = _resultado_cuerpo(resultado)
+
+        evaluacion = body.get("evaluacion") or {}
         if not isinstance(evaluacion, dict):
             evaluacion = {}
 
-        evaluacion_semantica = resultado.get("evaluacion_semantica") or {}
+        evaluacion_semantica = body.get("evaluacion_semantica") or {}
         if not isinstance(evaluacion_semantica, dict):
             evaluacion_semantica = {}
 
-        evaluacion_rubrica = resultado.get("evaluacion_rubrica") or {}
+        evaluacion_rubrica = body.get("evaluacion_rubrica") or {}
         if not isinstance(evaluacion_rubrica, dict):
             evaluacion_rubrica = {}
 
-        retroalimentacion = resultado.get("retroalimentacion") or {}
+        retroalimentacion = body.get("retroalimentacion") or {}
         if not isinstance(retroalimentacion, dict):
             retroalimentacion = {}
 
-        caso = resultado.get("caso")
+        caso = body.get("caso") or outer.get("caso")
         if not isinstance(caso, dict):
             caso = None
+
+        summary = outer.get("summary") if isinstance(outer.get("summary"), dict) else {}
+        if not isinstance(summary, dict):
+            summary = {}
+
+        faithfulness = (
+            outer.get("faithfulness")
+            if outer.get("faithfulness") is not None
+            else summary.get("faithfulness")
+        )
+        answer_relevancy = (
+            outer.get("answer_relevancy")
+            if outer.get("answer_relevancy") is not None
+            else summary.get("answer_relevancy")
+        )
 
         registro = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -159,16 +200,36 @@ def _guardar_resultado_en_historial(
             "pipeline": pipeline,
             "answer": answer,
             "case": caso,
-            "score_total": evaluacion.get("puntaje_total") or resultado.get("puntaje_total"),
-            "score_semantic": evaluacion_semantica.get("puntaje_total") or resultado.get("puntaje_semantico"),
-            "score_rubric": evaluacion_rubrica.get("puntaje_total"),
-            "retrieval_score": (
+            "score_total": (
+                evaluacion.get("puntaje_total")
+                or body.get("puntaje_total")
+                or outer.get("puntaje_total")
+            ),
+            "score_semantic": (
+                evaluacion_semantica.get("puntaje_total")
+                or body.get("puntaje_semantico")
+                or outer.get("puntaje_semantico")
+            ),
+            "score_rubric": (
+                evaluacion_rubrica.get("puntaje_total")
+                or body.get("puntaje_rubrica")
+                or outer.get("puntaje_rubrica")
+            ),
+            "relevance_case": (
                 evaluacion.get("indice_relevancia_caso")
                 or evaluacion_semantica.get("indice_relevancia_caso")
-                or resultado.get("indice_relevancia_caso")
+                or body.get("indice_relevancia_caso")
+                or outer.get("indice_relevancia_caso")
             ),
+            "relevance_lexica": (
+                evaluacion_semantica.get("indice_relevancia_lexica")
+                or body.get("indice_relevancia_lexica")
+                or outer.get("indice_relevancia_lexica")
+            ),
+            "faithfulness": faithfulness,
+            "answer_relevancy": answer_relevancy,
             "feedback": retroalimentacion.get("resumen") or evaluacion.get("resumen") or "",
-            "response_json": resultado,
+            "response_json": outer,
         }
 
         append_result(registro)
@@ -185,14 +246,60 @@ def _guardar_resultado_benchmark(
     answer: str,
     resultado: Any,
 ) -> None:
-    _guardar_resultado_en_historial(
-        caso_id=caso_id,
-        benchmark_id=benchmark_id,
-        sample_id=sample_id,
-        pipeline=pipeline,
-        answer=answer,
-        resultado=resultado,
-    )
+    try:
+        componentes = _extraer_componentes_benchmark(resultado)
+
+        if componentes:
+            if "benchmark" in componentes:
+                _guardar_resultado_en_historial(
+                    caso_id=caso_id,
+                    benchmark_id=benchmark_id,
+                    sample_id=sample_id,
+                    pipeline="benchmark",
+                    answer=answer,
+                    resultado=componentes["benchmark"],
+                )
+            else:
+                _guardar_resultado_en_historial(
+                    caso_id=caso_id,
+                    benchmark_id=benchmark_id,
+                    sample_id=sample_id,
+                    pipeline="benchmark",
+                    answer=answer,
+                    resultado=resultado,
+                )
+
+            if "langgraph" in componentes:
+                _guardar_resultado_en_historial(
+                    caso_id=caso_id,
+                    benchmark_id=benchmark_id,
+                    sample_id=sample_id,
+                    pipeline="langgraph",
+                    answer=answer,
+                    resultado=componentes["langgraph"],
+                )
+
+            if "langchain" in componentes:
+                _guardar_resultado_en_historial(
+                    caso_id=caso_id,
+                    benchmark_id=benchmark_id,
+                    sample_id=sample_id,
+                    pipeline="langchain",
+                    answer=answer,
+                    resultado=componentes["langchain"],
+                )
+            return
+
+        _guardar_resultado_en_historial(
+            caso_id=caso_id,
+            benchmark_id=benchmark_id,
+            sample_id=sample_id,
+            pipeline=pipeline,
+            answer=answer,
+            resultado=resultado,
+        )
+    except Exception:
+        pass
 
 
 def _guardar_resultado_ragas(resultado: Any, benchmark_id: str = "") -> None:
