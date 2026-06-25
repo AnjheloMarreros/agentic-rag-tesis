@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -7,7 +8,7 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 
@@ -19,11 +20,11 @@ from backend.services.logs import registrar_evento
 from backend.services.result_store import (
     append_result,
     load_results,
+    render_result_detail_html,
     render_results_csv,
     render_results_html,
     render_results_jsonl,
 )
-
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR.parent / ".env")
@@ -192,6 +193,41 @@ def _guardar_resultado_benchmark(
         answer=answer,
         resultado=resultado,
     )
+
+
+def _guardar_resultado_ragas(resultado: Any, benchmark_id: str = "") -> None:
+    try:
+        if not isinstance(resultado, dict):
+            return
+
+        summary = resultado.get("summary") or {}
+        if not isinstance(summary, dict):
+            summary = {}
+
+        registro = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "case_id": "",
+            "caso_id": "",
+            "benchmark_id": benchmark_id or resultado.get("benchmark_id_used") or resultado.get("benchmark_id") or "",
+            "sample_id": "",
+            "pipeline": "ragas",
+            "status": resultado.get("status", ""),
+            "provider": resultado.get("provider", ""),
+            "metrics_used": resultado.get("metrics_used", []),
+            "num_samples": resultado.get("num_samples"),
+            "input_samples": resultado.get("input_samples"),
+            "has_retrieved_contexts": resultado.get("has_retrieved_contexts"),
+            "faithfulness": summary.get("faithfulness"),
+            "answer_relevancy": summary.get("answer_relevancy"),
+            "summary": summary,
+            "rows": resultado.get("rows", []),
+            "output_csv": resultado.get("output_csv"),
+            "response_json": resultado,
+        }
+
+        append_result(registro)
+    except Exception:
+        pass
 
 
 @app.get("/")
@@ -695,6 +731,7 @@ def obtener_resultados(
     pipeline: str | None = None,
     limit: int | None = None,
     format: str = "html",
+    detail_index: int | None = None,
 ):
     rows = load_results(
         case_id=case_id,
@@ -704,6 +741,11 @@ def obtener_resultados(
         pipeline=pipeline,
         limit=limit,
     )
+
+    if detail_index is not None:
+        if detail_index < 0 or detail_index >= len(rows):
+            raise HTTPException(status_code=404, detail="No existe ese registro.")
+        return HTMLResponse(render_result_detail_html(rows[detail_index]))
 
     fmt = format.lower().strip()
 
@@ -718,18 +760,14 @@ def obtener_resultados(
         return Response(
             content=render_results_csv(rows),
             media_type="text/csv; charset=utf-8",
-            headers={
-                "Content-Disposition": 'inline; filename="resultados.csv"'
-            },
+            headers={"Content-Disposition": 'inline; filename="resultados.csv"'},
         )
 
     if fmt == "jsonl":
         return Response(
             content=render_results_jsonl(rows),
             media_type="application/jsonl; charset=utf-8",
-            headers={
-                "Content-Disposition": 'inline; filename="resultados.jsonl"'
-            },
+            headers={"Content-Disposition": 'inline; filename="resultados.jsonl"'},
         )
 
     return HTMLResponse(render_results_html(rows))
@@ -768,7 +806,7 @@ def debug_logs_status(benchmark_id: Optional[str] = Query(None, min_length=1)):
 
     for raw in lines[-20:]:
         try:
-            item = __import__("json").loads(raw)
+            item = json.loads(raw)
         except Exception:
             continue
 
@@ -800,7 +838,15 @@ def debug_logs_status(benchmark_id: Optional[str] = Query(None, min_length=1)):
 def api_ragas_live(benchmark_id: Optional[str] = Query(None, min_length=1)):
     try:
         from backend.services.ragas_runner import run_ragas_live_evaluation
-        return run_ragas_live_evaluation(benchmark_id=benchmark_id)
+
+        resultado = run_ragas_live_evaluation(benchmark_id=benchmark_id)
+
+        try:
+            _guardar_resultado_ragas(resultado, benchmark_id=benchmark_id or "")
+        except Exception:
+            pass
+
+        return resultado
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
 
