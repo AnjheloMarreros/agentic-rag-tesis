@@ -167,34 +167,14 @@ def render_result_detail_html(row: dict[str, Any]) -> str:
     pipeline = esc(_row_value(row, "pipeline"))
     timestamp = esc(_row_value(row, "timestamp"))
 
-    score_total = esc(
-        _row_value(
-            row,
-            "score_total",
-            ("evaluacion", "puntaje_total"),
-            ("evaluacion_semantica", "puntaje_total"),
-            ("summary", "score_total"),
-        )
-    )
-    score_semantic = esc(
-        _row_value(
-            row,
-            "score_semantic",
-            ("evaluacion_semantica", "puntaje_total"),
-            ("summary", "puntaje_semantico"),
-        )
-    )
-    score_rubric = esc(
-        _row_value(
-            row,
-            "score_rubric",
-            ("evaluacion_rubrica", "puntaje_total"),
-            ("summary", "puntaje_rubrica"),
-        )
-    )
+    score_total = esc(_row_value(row, "score_total", ("evaluacion", "puntaje_total"), ("summary", "puntaje_total")))
+    score_semantic = esc(_row_value(row, "score_semantic", ("evaluacion_semantica", "puntaje_total"), ("summary", "puntaje_semantico")))
+    score_rubric = esc(_row_value(row, "score_rubric", ("evaluacion_rubrica", "puntaje_total"), ("summary", "puntaje_rubrica")))
+
     relevance_case = esc(
         _row_value(
             row,
+            "relevance_case",
             "indice_relevancia_caso",
             ("evaluacion", "indice_relevancia_caso"),
             ("evaluacion_semantica", "indice_relevancia_caso"),
@@ -204,25 +184,10 @@ def render_result_detail_html(row: dict[str, Any]) -> str:
     relevance_lexica = esc(
         _row_value(
             row,
+            "relevance_lexica",
             "indice_relevancia_lexica",
             ("evaluacion_semantica", "indice_relevancia_lexica"),
             ("summary", "indice_relevancia_lexica"),
-        )
-    )
-    faithfulness = esc(
-        _row_value(
-            row,
-            "faithfulness",
-            ("summary", "faithfulness"),
-            ("response_json", "summary", "faithfulness"),
-        )
-    )
-    answer_relevancy = esc(
-        _row_value(
-            row,
-            "answer_relevancy",
-            ("summary", "answer_relevancy"),
-            ("response_json", "summary", "answer_relevancy"),
         )
     )
 
@@ -303,8 +268,6 @@ def render_result_detail_html(row: dict[str, Any]) -> str:
           <div class="item"><div class="label">Puntaje rúbrica</div><div class="value">{score_rubric}</div></div>
           <div class="item"><div class="label">Relevancia con el caso</div><div class="value">{relevance_case}</div></div>
           <div class="item"><div class="label">Relevancia léxica</div><div class="value">{relevance_lexica}</div></div>
-          <div class="item"><div class="label">Faithfulness</div><div class="value">{faithfulness}</div></div>
-          <div class="item"><div class="label">Answer relevancy</div><div class="value">{answer_relevancy}</div></div>
         </div>
       </div>
 
@@ -338,33 +301,15 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
     for idx, row in enumerate(rows):
         answer = esc(_row_value(row, "answer", "entrada", "input", "response"))
         feedback = esc(_row_value(row, "feedback", "retroalimentacion"))
-        score_total = esc(
-            _row_value(
-                row,
-                "score_total",
-                ("evaluacion", "puntaje_total"),
-                ("summary", "puntaje_total"),
-            )
-        )
-        score_semantic = esc(
-            _row_value(
-                row,
-                "score_semantic",
-                ("evaluacion_semantica", "puntaje_total"),
-                ("summary", "puntaje_semantico"),
-            )
-        )
-        score_rubric = esc(
-            _row_value(
-                row,
-                "score_rubric",
-                ("evaluacion_rubrica", "puntaje_total"),
-                ("summary", "puntaje_rubrica"),
-            )
-        )
+
+        score_total = esc(_row_value(row, "score_total", ("evaluacion", "puntaje_total"), ("summary", "puntaje_total")))
+        score_semantic = esc(_row_value(row, "score_semantic", ("evaluacion_semantica", "puntaje_total"), ("summary", "puntaje_semantico")))
+        score_rubric = esc(_row_value(row, "score_rubric", ("evaluacion_rubrica", "puntaje_total"), ("summary", "puntaje_rubrica")))
+
         relevance_case = esc(
             _row_value(
                 row,
+                "relevance_case",
                 "indice_relevancia_caso",
                 ("evaluacion", "indice_relevancia_caso"),
                 ("evaluacion_semantica", "indice_relevancia_caso"),
@@ -374,27 +319,13 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
         relevance_lexica = esc(
             _row_value(
                 row,
+                "relevance_lexica",
                 "indice_relevancia_lexica",
                 ("evaluacion_semantica", "indice_relevancia_lexica"),
                 ("summary", "indice_relevancia_lexica"),
             )
         )
-        faithfulness = esc(
-            _row_value(
-                row,
-                "faithfulness",
-                ("summary", "faithfulness"),
-                ("response_json", "summary", "faithfulness"),
-            )
-        )
-        answer_relevancy = esc(
-            _row_value(
-                row,
-                "answer_relevancy",
-                ("summary", "answer_relevancy"),
-                ("response_json", "summary", "answer_relevancy"),
-            )
-        )
+
         case_id = esc(_row_value(row, "case_id", "caso_id"))
         sample_id = esc(_row_value(row, "sample_id"))
         pipeline = esc(_row_value(row, "pipeline"))
@@ -416,8 +347,6 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
               <td>{score_rubric}</td>
               <td>{relevance_case}</td>
               <td>{relevance_lexica}</td>
-              <td>{faithfulness}</td>
-              <td>{answer_relevancy}</td>
               <td style="max-width:340px;white-space:pre-wrap">{answer}</td>
               <td style="max-width:360px;white-space:pre-wrap">{feedback}</td>
               <td><a href="{detail_link}">Ver detalle</a></td>
@@ -426,7 +355,7 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
         )
 
     body = "\n".join(cards) if cards else """
-        <tr><td colspan="15" style="text-align:center;padding:24px;">Sin resultados.</td></tr>
+        <tr><td colspan="13" style="text-align:center;padding:24px;">Sin resultados.</td></tr>
     """
 
     return f"""
@@ -496,10 +425,8 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
               <th>Puntaje total</th>
               <th>Puntaje semántico</th>
               <th>Puntaje rúbrica</th>
-              <th>Relevancia caso</th>
+              <th>Relevancia con el caso</th>
               <th>Relevancia léxica</th>
-              <th>Faithfulness</th>
-              <th>Answer relevancy</th>
               <th>Respuesta</th>
               <th>Retroalimentación</th>
               <th>Detalle</th>
