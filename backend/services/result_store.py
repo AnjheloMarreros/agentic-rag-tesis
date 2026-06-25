@@ -9,8 +9,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from google.cloud import storage
-
 
 RESULTS_BUCKET = os.getenv("RESULTS_BUCKET", "").strip()
 RESULTS_OBJECT = os.getenv("RESULTS_OBJECT", "results/index.jsonl").strip()
@@ -31,13 +29,24 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _get_storage_client():
+    try:
+        from google.cloud import storage
+    except Exception as exc:
+        raise RuntimeError(
+            "Falta instalar 'google-cloud-storage' en requirements.txt."
+        ) from exc
+    return storage.Client()
+
+
 def _get_blob():
     if not RESULTS_BUCKET:
         raise RuntimeError(
             "RESULTS_BUCKET no está configurado. Debes definir el bucket de Cloud Storage."
         )
 
-    client = storage.Client()
+    storage = _get_storage_client()
+    client = storage
     bucket = client.bucket(RESULTS_BUCKET)
     return bucket.blob(RESULTS_OBJECT)
 
@@ -45,9 +54,11 @@ def _get_blob():
 def append_result(record: dict[str, Any]) -> None:
     payload = _json_safe(dict(record))
     payload.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+
     line = json.dumps(payload, ensure_ascii=False)
 
     blob = _get_blob()
+    current = ""
 
     for attempt in range(5):
         try:
@@ -101,16 +112,12 @@ def load_results(
 
         if case_id and row_case_id != case_id:
             continue
-
         if caso_id and row_case_id != caso_id:
             continue
-
         if benchmark_id and item.get("benchmark_id") != benchmark_id:
             continue
-
         if sample_id and item.get("sample_id") != sample_id:
             continue
-
         if pipeline and item.get("pipeline") != pipeline:
             continue
 
