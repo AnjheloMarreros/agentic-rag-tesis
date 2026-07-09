@@ -1,19 +1,22 @@
+from __future__ import annotations
+
+import json
 from datetime import datetime
 from pathlib import Path
-import json
+from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 LOGS_DIR = BASE_DIR / "logs"
-LOGS_DIR.mkdir(exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 ARCHIVO_LOG = LOGS_DIR / "eventos.jsonl"
 
 
-def registrar_evento(tipo: str, datos: dict):
+def registrar_evento(tipo: str, datos: dict[str, Any]) -> None:
     evento = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
         "tipo": tipo,
-        "datos": datos
+        "datos": datos,
     }
 
     with open(ARCHIVO_LOG, "a", encoding="utf-8") as archivo:

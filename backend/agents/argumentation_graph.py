@@ -5,7 +5,6 @@ from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from backend.services.audio_handler import transcribir_audio
 from backend.services.case_loader import cargar_caso
 from backend.services.input_handler import normalizar_texto
 from backend.services.logs import registrar_evento
@@ -19,7 +18,6 @@ class EvaluacionState(TypedDict, total=False):
     caso_id: str
     tipo_entrada: str
     texto: str
-    ruta_audio: str
     benchmark_id: str
     sample_id: str
     texto_procesado: str
@@ -255,14 +253,7 @@ def _construir_resultado_final(
 
 
 def procesar_entrada(state: EvaluacionState) -> EvaluacionState:
-    tipo = state["tipo_entrada"].lower().strip()
-
-    if tipo == "texto":
-        texto = normalizar_texto(state.get("texto", ""))
-    elif tipo == "audio":
-        texto = normalizar_texto(transcribir_audio(state["ruta_audio"]))
-    else:
-        raise ValueError("tipo_entrada debe ser 'texto' o 'audio'.")
+    texto = normalizar_texto(state.get("texto", ""))
 
     if not texto:
         raise ValueError("No se pudo obtener texto válido desde la entrada.")
@@ -381,15 +372,16 @@ def ejecutar_evaluacion_langgraph(
     caso_id: str,
     tipo_entrada: str,
     texto: str = "",
-    ruta_audio: str = "",
     benchmark_id: str = "",
     sample_id: str = "",
 ):
+    if tipo_entrada.lower().strip() != "texto":
+        raise ValueError("Solo se admite tipo_entrada='texto'.")
+
     estado_inicial: EvaluacionState = {
         "caso_id": caso_id,
-        "tipo_entrada": tipo_entrada,
+        "tipo_entrada": "texto",
         "texto": texto,
-        "ruta_audio": ruta_audio,
         "benchmark_id": benchmark_id,
         "sample_id": sample_id,
     }

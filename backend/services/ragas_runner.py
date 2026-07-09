@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
-from math import isfinite
 import json
 import os
 import traceback
+from math import isfinite
+from pathlib import Path
 from pprint import pformat
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -32,11 +32,13 @@ def _debug_print(title: str, payload: Any | None = None) -> None:
         return
 
     print(f"[RAGAS-DEBUG] {title}")
-    if payload is not None:
-        try:
-            print(pformat(payload, width=140, sort_dicts=False))
-        except Exception:
-            print(str(payload))
+    if payload is None:
+        return
+
+    try:
+        print(pformat(payload, width=140, sort_dicts=False))
+    except Exception:
+        print(str(payload))
 
 
 def _clean_jsonable(value: Any) -> Any:
@@ -80,8 +82,8 @@ def _to_float(value: Any) -> float | None:
 
 def _mean_safe(values: list[Any]) -> float:
     nums: list[float] = []
-    for v in values:
-        numeric = _to_float(v)
+    for value in values:
+        numeric = _to_float(value)
         if numeric is not None:
             nums.append(numeric)
     return round(sum(nums) / len(nums), 4) if nums else 0.0
@@ -103,11 +105,9 @@ def _dataset_samples(dataset: Any) -> list[Any]:
 
 def _sample_has_contexts(sample: Any) -> bool:
     if isinstance(sample, dict):
-        contexts = sample.get("retrieved_contexts") or sample.get("contexto_recuperado")
-        return bool(contexts)
+        return bool(sample.get("retrieved_contexts") or sample.get("contexto_recuperado"))
 
-    contexts = getattr(sample, "retrieved_contexts", None)
-    return bool(contexts)
+    return bool(getattr(sample, "retrieved_contexts", None))
 
 
 def _sample_preview(sample: Any) -> dict[str, Any]:
@@ -132,10 +132,7 @@ def _sample_preview(sample: Any) -> dict[str, Any]:
 
 def _build_models():
     groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
-    groq_model = os.getenv(
-        "GROQ_MODEL",
-        os.getenv("RAGAS_MODEL", "llama-3.3-70b-versatile"),
-    ).strip()
+    groq_model = os.getenv("GROQ_MODEL", os.getenv("RAGAS_MODEL", "llama-3.3-70b-versatile")).strip()
     embedding_model = os.getenv(
         "RAGAS_EMBEDDING_MODEL",
         "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -157,17 +154,15 @@ def _build_models():
     from langchain_groq import ChatGroq
     from langchain_huggingface import HuggingFaceEmbeddings
 
-    base_llm = ChatGroq(
+    llm = ChatGroq(
         model=groq_model,
         api_key=groq_api_key,
         temperature=0,
     )
 
-    base_embeddings = HuggingFaceEmbeddings(
-        model_name=embedding_model,
-    )
+    embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
 
-    return LangchainLLMWrapper(base_llm), LangchainEmbeddingsWrapper(base_embeddings)
+    return LangchainLLMWrapper(llm), LangchainEmbeddingsWrapper(embeddings)
 
 
 def _build_metric_list(llm, embeddings, include_faithfulness: bool = True):
@@ -231,6 +226,30 @@ def _evaluate_dataset(dataset, metrics, llm, embeddings):
             )
 
 
+def _empty_report(
+    *,
+    status: str,
+    benchmark_id: str | None,
+    message: str,
+    detail: str,
+    input_samples: int = 0,
+    num_samples: int = 0,
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "status": status,
+        "provider": "groq",
+        "benchmark_id_used": benchmark_id,
+        "message": message,
+        "detail": detail,
+        "summary": {},
+        "num_samples": num_samples,
+        "input_samples": input_samples,
+        "rows": [],
+        "output_csv": None,
+    }
+
+
 def run_ragas_live_evaluation(benchmark_id: str | None = None) -> dict[str, Any]:
     selected_benchmark_id = benchmark_id or find_latest_benchmark_id()
 
@@ -245,26 +264,17 @@ def run_ragas_live_evaluation(benchmark_id: str | None = None) -> dict[str, Any]
             _debug_print(f"sample_preview_{i}", _sample_preview(sample))
 
     if not samples:
-        return {
-            "ok": False,
-            "status": "empty_dataset",
-            "provider": "groq",
-            "benchmark_id_used": selected_benchmark_id,
-            "message": (
+        return _empty_report(
+            status="empty_dataset",
+            benchmark_id=selected_benchmark_id,
+            message=(
                 "No se encontraron registros compatibles para RAGAS. "
-                "El dataset quedó vacío porque no hubo eventos de evaluación "
-                "válidos para la corrida seleccionada."
+                "El dataset quedó vacío porque no hubo eventos válidos para la corrida seleccionada."
             ),
-            "detail": "build_dataset_from_logs() devolvió 0 muestras.",
-            "summary": {},
-            "num_samples": 0,
-            "input_samples": 0,
-            "rows": [],
-            "output_csv": None,
-        }
+            detail="build_dataset_from_logs() devolvió 0 muestras.",
+        )
 
     include_faithfulness = any(_sample_has_contexts(sample) for sample in samples)
-
     _debug_print("has_retrieved_contexts", include_faithfulness)
 
     llm, embeddings = _build_models()
@@ -293,43 +303,29 @@ def run_ragas_live_evaluation(benchmark_id: str | None = None) -> dict[str, Any]
         print(f"[RAGAS-ERROR] message={exc}")
         print(traceback.format_exc())
 
-        message = str(exc)
-        lower_message = message.lower()
-
-        if "resource_exhausted" in lower_message or "quota" in lower_message or "429" in lower_message:
-            return {
-                "ok": False,
-                "status": "quota_exhausted",
-                "provider": "groq",
-                "benchmark_id_used": selected_benchmark_id,
-                "message": (
+        message = str(exc).lower()
+        if "resource_exhausted" in message or "quota" in message or "429" in message:
+            return _empty_report(
+                status="quota_exhausted",
+                benchmark_id=selected_benchmark_id,
+                message=(
                     "El proveedor de LLM no tiene cuota disponible para continuar "
                     "con la evaluación RAGAS en este momento."
                 ),
-                "detail": message,
-                "summary": {},
-                "num_samples": 0,
-                "input_samples": len(samples),
-                "rows": [],
-                "output_csv": None,
-            }
+                detail=str(exc),
+                input_samples=len(samples),
+            )
 
         if DEBUG_RAGAS:
             raise
 
-        return {
-            "ok": False,
-            "status": "evaluation_error",
-            "provider": "groq",
-            "benchmark_id_used": selected_benchmark_id,
-            "message": "RAGAS falló durante la evaluación.",
-            "detail": message,
-            "summary": {},
-            "num_samples": 0,
-            "input_samples": len(samples),
-            "rows": [],
-            "output_csv": None,
-        }
+        return _empty_report(
+            status="evaluation_error",
+            benchmark_id=selected_benchmark_id,
+            message="RAGAS falló durante la evaluación.",
+            detail=str(exc),
+            input_samples=len(samples),
+        )
 
     try:
         df = result.to_pandas()
@@ -343,55 +339,42 @@ def run_ragas_live_evaluation(benchmark_id: str | None = None) -> dict[str, Any]
         if DEBUG_RAGAS:
             raise
 
-        return {
-            "ok": False,
-            "status": "result_to_dataframe_error",
-            "provider": "groq",
-            "benchmark_id_used": selected_benchmark_id,
-            "message": "RAGAS devolvió un resultado que no pudo convertirse a tabla.",
-            "detail": str(exc),
-            "summary": {},
-            "num_samples": 0,
-            "input_samples": len(samples),
-            "rows": [],
-            "output_csv": None,
-        }
+        return _empty_report(
+            status="result_to_dataframe_error",
+            benchmark_id=selected_benchmark_id,
+            message="RAGAS devolvió un resultado que no pudo convertirse a tabla.",
+            detail=str(exc),
+            input_samples=len(samples),
+        )
 
     if DEBUG_RAGAS:
         _debug_print("df_columns", list(df.columns))
         _debug_print("df_head", df.head(5).to_dict(orient="records"))
 
     if df.empty:
-        return {
-            "ok": False,
-            "status": "empty_result",
-            "provider": "groq",
-            "benchmark_id_used": selected_benchmark_id,
-            "message": "RAGAS devolvió un resultado vacío.",
-            "detail": "to_pandas() produjo un DataFrame vacío.",
-            "summary": {},
-            "num_samples": 0,
-            "input_samples": len(samples),
-            "rows": [],
-            "output_csv": None,
-        }
+        return _empty_report(
+            status="empty_result",
+            benchmark_id=selected_benchmark_id,
+            message="RAGAS devolvió un resultado vacío.",
+            detail="to_pandas() produjo un DataFrame vacío.",
+            input_samples=len(samples),
+        )
 
     output_csv = RESULTS_DIR / "ragas_latest.csv"
     df.to_csv(output_csv, index=False)
 
+    summary: dict[str, float] = {}
     metric_columns = {
-        "faithfulness": ["faithfulness"],
-        "answer_relevancy": ["answer_relevancy", "response_relevancy"],
+        "faithfulness": ("faithfulness",),
+        "answer_relevancy": ("answer_relevancy", "response_relevancy"),
     }
 
-    summary: dict[str, float] = {}
     for key, candidates in metric_columns.items():
-        found_value = None
+        summary[key] = 0.0
         for col in candidates:
             if col in df.columns:
-                found_value = _mean_safe(df[col].tolist())
+                summary[key] = _mean_safe(df[col].tolist())
                 break
-        summary[key] = found_value if found_value is not None else 0.0
 
     if not include_faithfulness:
         summary["faithfulness"] = 0.0

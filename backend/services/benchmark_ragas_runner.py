@@ -9,13 +9,13 @@ import json
 import os
 from uuid import uuid4
 
+from ragas import evaluate
+from ragas.run_config import RunConfig
+
 try:
     from ragas.dataset_schema import EvaluationDataset, SingleTurnSample
 except Exception:  # pragma: no cover
     from ragas import EvaluationDataset, SingleTurnSample  # type: ignore
-
-from ragas import evaluate
-from ragas.run_config import RunConfig
 
 try:
     from ragas.llms import LangchainLLMWrapper
@@ -59,15 +59,12 @@ def _clean_jsonable(value: Any) -> Any:
             numeric = float(value)
         except Exception:
             return value
-        if numeric != numeric:  # NaN
-            return None
-        if numeric in (float("inf"), float("-inf")):
+        if numeric != numeric or numeric in (float("inf"), float("-inf")):
             return None
         return numeric
     if hasattr(value, "item"):
         try:
-            item = value.item()
-            return _clean_jsonable(item)
+            return _clean_jsonable(value.item())
         except Exception:
             return value
     return value
@@ -80,9 +77,7 @@ def _to_float(value: Any) -> float | None:
         if isinstance(value, str) and not value.strip():
             return None
         numeric = float(value)
-        if numeric != numeric:
-            return None
-        if numeric in (float("inf"), float("-inf")):
+        if numeric != numeric or numeric in (float("inf"), float("-inf")):
             return None
         return numeric
     except Exception:
@@ -91,8 +86,8 @@ def _to_float(value: Any) -> float | None:
 
 def _mean_safe(values: list[Any]) -> float:
     nums: list[float] = []
-    for v in values:
-        numeric = _to_float(v)
+    for value in values:
+        numeric = _to_float(value)
         if numeric is not None:
             nums.append(numeric)
     return round(sum(nums) / len(nums), 4) if nums else 0.0
@@ -117,10 +112,10 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
                 continue
             try:
                 item = json.loads(raw)
-                if isinstance(item, dict):
-                    rows.append(item)
             except Exception:
                 continue
+            if isinstance(item, dict):
+                rows.append(item)
     return rows
 
 
@@ -135,10 +130,13 @@ def _normalize_text(value: Any) -> str:
 def _normalize_list(value: Any) -> list[str]:
     if value is None:
         return []
-    if isinstance(value, list):
-        return [_normalize_text(item) for item in value if _normalize_text(item)]
-    if isinstance(value, tuple):
-        return [_normalize_text(item) for item in value if _normalize_text(item)]
+    if isinstance(value, (list, tuple)):
+        cleaned: list[str] = []
+        for item in value:
+            text = _normalize_text(item)
+            if text:
+                cleaned.append(text)
+        return cleaned
     text = _normalize_text(value)
     return [text] if text else []
 
@@ -156,7 +154,6 @@ def _iter_events(event_types: set[str] | None = None):
 
             if not payload:
                 continue
-
             if event_types and tipo not in event_types:
                 continue
 
@@ -210,13 +207,14 @@ def _build_models():
 def _build_metric_list(llm: Any, embeddings: Any):
     from ragas.metrics import Faithfulness, ResponseRelevancy
 
-    faith_metric = Faithfulness(llm=llm)
-    answer_metric = ResponseRelevancy(
-        llm=llm,
-        embeddings=embeddings,
-        strictness=int(os.getenv("RAGAS_STRICTNESS", "3")),
-    )
-    return [faith_metric, answer_metric]
+    return [
+        Faithfulness(llm=llm),
+        ResponseRelevancy(
+            llm=llm,
+            embeddings=embeddings,
+            strictness=int(os.getenv("RAGAS_STRICTNESS", "3")),
+        ),
+    ]
 
 
 def _evaluate_dataset(dataset, metrics, llm, embeddings):
@@ -382,11 +380,36 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _summarize_rows(rows: list[dict[str, Any]]) -> dict[str, float]:
-    summary: dict[str, float] = {}
-    for metric in ("faithfulness", "answer_relevancy"):
-        values = [row.get(metric) for row in rows]
-        summary[metric] = _mean_safe(values)
-    return summary
+    return {
+        "faithfulness": _mean_safe([row.get("faithfulness") for row in rows]),
+        "answer_relevancy": _mean_safe([row.get("answer_relevancy") for row in rows]),
+    }
+
+
+def _empty_report(
+    *,
+    pipeline_name: str,
+    event_type: str,
+    status: str,
+    message: str,
+    num_failed: int = 0,
+    failed_rows: list[dict[str, Any]] | None = None,
+    rows: list[dict[str, Any]] | None = None,
+    output_csv: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "status": status,
+        "pipeline": pipeline_name,
+        "event_type": event_type,
+        "summary": {},
+        "num_samples": 0,
+        "num_failed": num_failed,
+        "failed_rows": failed_rows or [],
+        "rows": rows or [],
+        "output_csv": output_csv,
+        "message": message,
+    }
 
 
 def _run_one_pipeline(
@@ -406,18 +429,12 @@ def _run_one_pipeline(
         candidates.append(_build_sample_from_payload(item["payload"]))
 
     if not candidates:
-        report = {
-            "ok": False,
-            "status": "empty_dataset",
-            "pipeline": pipeline_name,
-            "event_type": event_type,
-            "summary": {},
-            "num_samples": 0,
-            "num_failed": 0,
-            "failed_rows": [],
-            "rows": [],
-            "output_csv": None,
-        }
+        report = _empty_report(
+            pipeline_name=pipeline_name,
+            event_type=event_type,
+            status="empty_dataset",
+            message="No se encontraron eventos válidos para esta corrida.",
+        )
 
         with open(pipeline_dir / f"{pipeline_name}_benchmark.json", "w", encoding="utf-8") as f:
             json.dump(_clean_jsonable(report), f, ensure_ascii=False, indent=2, allow_nan=False)
@@ -437,18 +454,14 @@ def _run_one_pipeline(
             failed.append(row)
 
     if not rows:
-        report = {
-            "ok": False,
-            "status": "no_valid_rows",
-            "pipeline": pipeline_name,
-            "event_type": event_type,
-            "summary": {},
-            "num_samples": 0,
-            "num_failed": len(failed),
-            "failed_rows": failed,
-            "rows": [],
-            "output_csv": None,
-        }
+        report = _empty_report(
+            pipeline_name=pipeline_name,
+            event_type=event_type,
+            status="no_valid_rows",
+            message="No se pudieron evaluar filas válidas para esta corrida.",
+            num_failed=len(failed),
+            failed_rows=failed,
+        )
 
         with open(pipeline_dir / f"{pipeline_name}_benchmark.json", "w", encoding="utf-8") as f:
             json.dump(_clean_jsonable(report), f, ensure_ascii=False, indent=2, allow_nan=False)
@@ -534,13 +547,6 @@ def run_daily_benchmark_ragas_reports() -> dict[str, Any]:
                 )
 
     return comparison
-
-
-def _job_set(job_id: str, **updates: Any) -> None:
-    with JOBS_LOCK:
-        current = JOBS.get(job_id, {})
-        current.update(updates)
-        JOBS[job_id] = current
 
 
 def _run_daily_job(job_id: str) -> None:

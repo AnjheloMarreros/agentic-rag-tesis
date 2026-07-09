@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from pathlib import Path
-from typing import List, Dict, Iterable
+from typing import Dict, Iterable, List
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
@@ -37,22 +39,25 @@ def _iterar_archivos_documento(directorios: Iterable[Path]):
             yield ruta_resuelta
 
 
-def cargar_documentos(include_pedagogical: bool = False) -> List[Dict[str, str]]:
+def cargar_documentos(
+    include_pedagogical: bool = True,
+    include_fallback: bool = True,
+) -> List[Dict[str, str]]:
     directorios = [KNOWLEDGE_DIR]
 
     if include_pedagogical:
         directorios.append(PEDAGOGICAL_DIR)
 
-    directorios.append(DOCS_FALLBACK_DIR)
-
-    documentos: List[Dict[str, str]] = []
+    if include_fallback:
+        directorios.append(DOCS_FALLBACK_DIR)
 
     archivos = list(_iterar_archivos_documento(directorios))
-
     if not archivos:
         raise ValueError(
             "No se encontraron documentos .txt ni .md para cargar en la base vectorial."
         )
+
+    documentos: List[Dict[str, str]] = []
 
     for archivo in sorted(archivos):
         texto = leer_texto(archivo)
@@ -76,8 +81,6 @@ def cargar_documentos(include_pedagogical: bool = False) -> List[Dict[str, str]]
         )
 
     if not documentos:
-        raise ValueError(
-            "Se encontraron archivos de texto, pero todos estaban vacíos."
-        )
+        raise ValueError("Se encontraron archivos de texto, pero todos estaban vacíos.")
 
     return documentos
