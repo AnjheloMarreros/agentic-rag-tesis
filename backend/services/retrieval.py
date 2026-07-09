@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from backend.services.vector_store import buscar_similares
 
 

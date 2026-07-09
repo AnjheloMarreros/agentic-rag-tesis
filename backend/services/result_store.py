@@ -46,6 +46,12 @@ def _get_blob():
     return bucket.blob(RESULTS_OBJECT)
 
 
+def _read_blob_lines(blob) -> str:
+    if not blob.exists():
+        return ""
+    return blob.download_as_text(encoding="utf-8").strip()
+
+
 def append_result(record: dict[str, Any]) -> None:
     payload = _json_safe(dict(record))
     payload.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
@@ -55,11 +61,7 @@ def append_result(record: dict[str, Any]) -> None:
 
     for attempt in range(5):
         try:
-            if blob.exists():
-                current = blob.download_as_text(encoding="utf-8").strip()
-            else:
-                current = ""
-
+            current = _read_blob_lines(blob)
             if current:
                 current += "\n"
             current += line + "\n"
@@ -124,7 +126,7 @@ def load_results(
     return rows
 
 
-def _pick(row: dict[str, Any], *paths: Any, default: str = "") -> Any:
+def _pick(row: dict[str, Any], *paths: Any, default: Any = "") -> Any:
     for path in paths:
         if isinstance(path, str):
             value = row.get(path)
@@ -153,6 +155,32 @@ def _row_value(row: dict[str, Any], *keys: Any) -> str:
     return str(value)
 
 
+def _score_values(row: dict[str, Any]) -> tuple[str, str, str]:
+    score_total = _row_value(row, "score_total", ("evaluacion", "puntaje_total"), ("summary", "puntaje_total"))
+    score_semantic = _row_value(row, "score_semantic", ("evaluacion_semantica", "puntaje_total"), ("summary", "puntaje_semantico"))
+    score_rubric = _row_value(row, "score_rubric", ("evaluacion_rubrica", "puntaje_total"), ("summary", "puntaje_rubrica"))
+    return score_total, score_semantic, score_rubric
+
+
+def _relevance_values(row: dict[str, Any]) -> tuple[str, str]:
+    relevance_case = _row_value(
+        row,
+        "relevance_case",
+        "indice_relevancia_caso",
+        ("evaluacion", "indice_relevancia_caso"),
+        ("evaluacion_semantica", "indice_relevancia_caso"),
+        ("summary", "indice_relevancia_caso"),
+    )
+    relevance_lexica = _row_value(
+        row,
+        "relevance_lexica",
+        "indice_relevancia_lexica",
+        ("evaluacion_semantica", "indice_relevancia_lexica"),
+        ("summary", "indice_relevancia_lexica"),
+    )
+    return relevance_case, relevance_lexica
+
+
 def render_result_detail_html(row: dict[str, Any]) -> str:
     pretty = json.dumps(_json_safe(row), ensure_ascii=False, indent=2)
 
@@ -167,29 +195,8 @@ def render_result_detail_html(row: dict[str, Any]) -> str:
     pipeline = esc(_row_value(row, "pipeline"))
     timestamp = esc(_row_value(row, "timestamp"))
 
-    score_total = esc(_row_value(row, "score_total", ("evaluacion", "puntaje_total"), ("summary", "puntaje_total")))
-    score_semantic = esc(_row_value(row, "score_semantic", ("evaluacion_semantica", "puntaje_total"), ("summary", "puntaje_semantico")))
-    score_rubric = esc(_row_value(row, "score_rubric", ("evaluacion_rubrica", "puntaje_total"), ("summary", "puntaje_rubrica")))
-
-    relevance_case = esc(
-        _row_value(
-            row,
-            "relevance_case",
-            "indice_relevancia_caso",
-            ("evaluacion", "indice_relevancia_caso"),
-            ("evaluacion_semantica", "indice_relevancia_caso"),
-            ("summary", "indice_relevancia_caso"),
-        )
-    )
-    relevance_lexica = esc(
-        _row_value(
-            row,
-            "relevance_lexica",
-            "indice_relevancia_lexica",
-            ("evaluacion_semantica", "indice_relevancia_lexica"),
-            ("summary", "indice_relevancia_lexica"),
-        )
-    )
+    score_total, score_semantic, score_rubric = _score_values(row)
+    relevance_case, relevance_lexica = _relevance_values(row)
 
     answer = esc(_row_value(row, "answer", "entrada", "input", "response"))
     feedback = esc(_row_value(row, "feedback", "retroalimentacion"))
@@ -299,39 +306,17 @@ def render_results_html(rows: list[dict[str, Any]]) -> str:
     cards: list[str] = []
 
     for idx, row in enumerate(rows):
-        answer = esc(_row_value(row, "answer", "entrada", "input", "response"))
-        feedback = esc(_row_value(row, "feedback", "retroalimentacion"))
-
-        score_total = esc(_row_value(row, "score_total", ("evaluacion", "puntaje_total"), ("summary", "puntaje_total")))
-        score_semantic = esc(_row_value(row, "score_semantic", ("evaluacion_semantica", "puntaje_total"), ("summary", "puntaje_semantico")))
-        score_rubric = esc(_row_value(row, "score_rubric", ("evaluacion_rubrica", "puntaje_total"), ("summary", "puntaje_rubrica")))
-
-        relevance_case = esc(
-            _row_value(
-                row,
-                "relevance_case",
-                "indice_relevancia_caso",
-                ("evaluacion", "indice_relevancia_caso"),
-                ("evaluacion_semantica", "indice_relevancia_caso"),
-                ("summary", "indice_relevancia_caso"),
-            )
-        )
-        relevance_lexica = esc(
-            _row_value(
-                row,
-                "relevance_lexica",
-                "indice_relevancia_lexica",
-                ("evaluacion_semantica", "indice_relevancia_lexica"),
-                ("summary", "indice_relevancia_lexica"),
-            )
-        )
-
         case_id = esc(_row_value(row, "case_id", "caso_id"))
         sample_id = esc(_row_value(row, "sample_id"))
         pipeline = esc(_row_value(row, "pipeline"))
         benchmark_id = esc(_row_value(row, "benchmark_id"))
         timestamp = esc(_row_value(row, "timestamp"))
 
+        score_total, score_semantic, score_rubric = _score_values(row)
+        relevance_case, relevance_lexica = _relevance_values(row)
+
+        answer = esc(_row_value(row, "answer", "entrada", "input", "response"))
+        feedback = esc(_row_value(row, "feedback", "retroalimentacion"))
         detail_link = f"/resultados?detail_index={idx}"
 
         cards.append(
@@ -478,12 +463,14 @@ def render_results_csv(rows: list[dict[str, Any]]) -> str:
                 _row_value(row, "score_rubric", ("evaluacion_rubrica", "puntaje_total")),
                 _row_value(
                     row,
+                    "relevance_case",
                     "indice_relevancia_caso",
                     ("evaluacion", "indice_relevancia_caso"),
                     ("evaluacion_semantica", "indice_relevancia_caso"),
                 ),
                 _row_value(
                     row,
+                    "relevance_lexica",
                     "indice_relevancia_lexica",
                     ("evaluacion_semantica", "indice_relevancia_lexica"),
                 ),
@@ -498,7 +485,5 @@ def render_results_csv(rows: list[dict[str, Any]]) -> str:
 
 
 def render_results_jsonl(rows: list[dict[str, Any]]) -> str:
-    lines = []
-    for row in rows:
-        lines.append(json.dumps(_json_safe(row), ensure_ascii=False))
+    lines = [json.dumps(_json_safe(row), ensure_ascii=False) for row in rows]
     return "\n".join(lines) + ("\n" if lines else "")

@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agentic RAG Jurídico</title>
 
     <style>
@@ -30,7 +30,7 @@
             line-height: 1.5;
         }
 
-        select, input[type="file"]{
+        select{
             width: 100%;
             box-sizing: border-box;
             padding: 10px;
@@ -90,17 +90,12 @@
             color: #6b7280;
             font-size: 14px;
         }
-
-        .hidden{
-            display: none;
-        }
     </style>
 </head>
-
 <body>
 
 <h1>Aplicación Jurídica Agentic RAG</h1>
-<p class="muted">Selecciona un caso, responde por texto o audio y revisa la retroalimentación.</p>
+<p class="muted">Selecciona un caso, responde por texto y revisa la retroalimentación.</p>
 
 <div class="card">
     <h2>Seleccionar caso</h2>
@@ -124,22 +119,8 @@
     <h2>Responder caso</h2>
 
     <div class="field">
-        <label for="tipoEntrada">Tipo de entrada</label>
-        <select id="tipoEntrada" onchange="actualizarVistaEntrada()">
-            <option value="texto">Texto</option>
-            <option value="audio">Audio</option>
-        </select>
-    </div>
-
-    <div id="entradaTexto" class="field">
         <label for="respuestaTexto">Escribe tu respuesta</label>
         <textarea id="respuestaTexto" placeholder="Redacta aquí tu argumento..."></textarea>
-    </div>
-
-    <div id="entradaAudio" class="field hidden">
-        <label for="archivoAudio">Sube tu audio</label>
-        <input type="file" id="archivoAudio" accept="audio/*">
-        <p class="muted">Por ahora se carga un archivo de audio. Más adelante puede ser dictado por voz.</p>
     </div>
 
     <button type="button" onclick="evaluar()">
@@ -223,12 +204,6 @@
         await cargarCaso(casoId);
     }
 
-    function actualizarVistaEntrada(){
-        const tipo = document.getElementById("tipoEntrada").value;
-        document.getElementById("entradaTexto").classList.toggle("hidden", tipo !== "texto");
-        document.getElementById("entradaAudio").classList.toggle("hidden", tipo !== "audio");
-    }
-
     function formatearResultado(data){
         const evaluacion = data?.evaluacion || {};
         const retroalimentacion = data?.retroalimentacion || {};
@@ -308,29 +283,24 @@
     }
 
     async function evaluar(){
-        const tipo = document.getElementById("tipoEntrada").value;
         const casoId = document.getElementById("casoSelect").value;
+        const respuesta = document.getElementById("respuestaTexto").value.trim();
         const resultado = document.getElementById("resultado");
+
+        if (!casoId) {
+            resultado.textContent = "No hay caso seleccionado.";
+            return;
+        }
+
+        if (!respuesta) {
+            resultado.textContent = "Debes escribir una respuesta.";
+            return;
+        }
 
         const formData = new FormData();
         formData.append("caso_id", casoId);
-        formData.append("tipo_entrada", tipo);
-
-        if (tipo === "texto") {
-            formData.append(
-                "texto",
-                document.getElementById("respuestaTexto").value
-            );
-        } else {
-            const archivo = document.getElementById("archivoAudio").files[0];
-
-            if (!archivo) {
-                resultado.textContent = "Debes seleccionar un archivo de audio.";
-                return;
-            }
-
-            formData.append("archivo_audio", archivo);
-        }
+        formData.append("tipo_entrada", "texto");
+        formData.append("texto", respuesta);
 
         resultado.textContent = "Procesando...";
 
@@ -356,7 +326,6 @@
 
     document.addEventListener("DOMContentLoaded", async () => {
         await cargarListaCasos();
-        actualizarVistaEntrada();
     });
 </script>
 

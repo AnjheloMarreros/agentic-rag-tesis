@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+from functools import lru_cache
 from pathlib import Path
 from typing import List
 
@@ -7,18 +10,15 @@ from sentence_transformers import SentenceTransformer
 BASE_DIR = Path(__file__).resolve().parents[2]
 CHROMA_DIR = BASE_DIR / "data" / "chroma"
 COLLECTION_NAME = "conocimiento_juridico"
-
-_model = None
-
-
-def get_model():
-    global _model
-    if _model is None:
-        _model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-    return _model
+EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 
-def get_client():
+@lru_cache(maxsize=1)
+def get_model() -> SentenceTransformer:
+    return SentenceTransformer(EMBEDDING_MODEL_NAME)
+
+
+def get_client() -> PersistentClient:
     CHROMA_DIR.mkdir(parents=True, exist_ok=True)
     return PersistentClient(path=str(CHROMA_DIR))
 
@@ -29,18 +29,26 @@ def get_collection():
 
 
 def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> List[str]:
-    texto = " ".join(text.split()).strip()
+    texto = " ".join((text or "").split()).strip()
     if not texto:
         return []
 
-    chunks = []
-    inicio = 0
+    if chunk_size <= 0:
+        raise ValueError("chunk_size debe ser mayor que 0.")
+    if overlap < 0:
+        raise ValueError("overlap no puede ser negativo.")
+    if overlap >= chunk_size:
+        raise ValueError("overlap debe ser menor que chunk_size.")
 
-    while inicio < len(texto):
-        fin = min(inicio + chunk_size, len(texto))
+    chunks: List[str] = []
+    inicio = 0
+    largo = len(texto)
+
+    while inicio < largo:
+        fin = min(inicio + chunk_size, largo)
         chunks.append(texto[inicio:fin])
 
-        if fin == len(texto):
+        if fin >= largo:
             break
 
         inicio = fin - overlap
@@ -49,21 +57,32 @@ def chunk_text(text: str, chunk_size: int = 500, overlap: int = 100) -> List[str
 
 
 def embed_texts(texts: List[str]):
+    valid_texts = [(text or "").strip() for text in texts if (text or "").strip()]
+    if not valid_texts:
+        return []
+
     model = get_model()
-    return model.encode(texts, normalize_embeddings=True).tolist()
+    return model.encode(valid_texts, normalize_embeddings=True).tolist()
 
 
 def embed_query(query: str):
+    texto = (query or "").strip()
+    if not texto:
+        raise ValueError("query no puede estar vacía.")
+
     model = get_model()
-    return model.encode([query], normalize_embeddings=True).tolist()[0]
+    return model.encode([texto], normalize_embeddings=True).tolist()[0]
 
 
 def buscar_similares(query: str, n_results: int = 3):
+    if n_results <= 0:
+        raise ValueError("n_results debe ser mayor que 0.")
+
     collection = get_collection()
     query_embedding = embed_query(query)
 
     return collection.query(
         query_embeddings=[query_embedding],
         n_results=n_results,
-        include=["documents", "metadatas", "distances"]
+        include=["documents", "metadatas", "distances"],
     )

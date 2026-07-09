@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-from collections import Counter
-from functools import lru_cache
 from typing import Any
 import re
 import unicodedata
-
-import numpy as np
-from sentence_transformers import SentenceTransformer
 
 
 CONECTORES = [
@@ -18,6 +13,7 @@ CONECTORES = [
     "además",
     "por ello",
     "por consiguiente",
+    "por lo tanto",
     "ya que",
     "puesto que",
     "por otra parte",
@@ -35,6 +31,14 @@ MARCADORES_CONCLUSION = [
     "conclusión",
 ]
 
+MARCADORES_PREMISA = [
+    "premisa",
+    "premisa mayor",
+    "premisa menor",
+    "razonamiento",
+    "fundamento",
+]
+
 FRASES_DESCONOCIMIENTO = [
     "no estoy enterado",
     "no se",
@@ -44,40 +48,14 @@ FRASES_DESCONOCIMIENTO = [
     "no conozco",
 ]
 
-TERMINOS_JURIDICOS = [
-    "derecho",
-    "norma",
-    "constitucion",
-    "constitución",
-    "proceso",
-    "tribunal",
-    "demanda",
-    "identidad",
-    "caducidad",
-    "control difuso",
-    "codigo civil",
-    "código civil",
-    "constitucional",
-    "supranacional",
-    "convencion",
-    "convención",
-    "argumentacion",
-    "argumentación",
-]
-
 STOPWORDS = {
     "de", "la", "el", "los", "las", "un", "una", "unos", "unas", "y", "o", "u",
     "a", "ante", "bajo", "con", "contra", "desde", "durante", "entre", "hacia",
     "hasta", "para", "por", "segun", "según", "sin", "sobre", "tras", "del",
     "al", "que", "se", "es", "son", "ser", "como", "más", "menos", "muy",
     "en", "su", "sus", "le", "les", "lo", "ya", "no", "sí", "también",
-    "caso", "casos", "respuesta", "respuesta", "argumento", "argumentar",
+    "caso", "casos", "respuesta", "argumento", "argumentar", "texto",
 }
-
-
-@lru_cache(maxsize=1)
-def _modelo():
-    return SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
 
 
 def _normalizar(texto: str) -> str:
@@ -90,39 +68,10 @@ def _normalizar(texto: str) -> str:
     return texto
 
 
-def _palabras(texto: str) -> list[str]:
-    return [t for t in _normalizar(texto).split() if len(t) > 2]
-
-
-def _tokens_limpios(texto: str) -> list[str]:
-    texto = _normalizar(texto)
-    return [
-        t for t in re.split(r"\s+", texto)
-        if t and len(t) > 2 and t not in STOPWORDS
-    ]
-
-
-def _vector(texto: str):
-    texto = _normalizar(texto)
-    if not texto:
-        return None
-    try:
-        return _modelo().encode([texto], normalize_embeddings=True)[0]
-    except Exception:
-        return None
-
-
-def _coseno(a, b) -> float:
-    if a is None or b is None:
-        return 0.0
-    denom = float(np.linalg.norm(a) * np.linalg.norm(b))
-    if denom == 0:
-        return 0.0
-    return float(np.dot(a, b) / denom)
-
-
-def _clamp(valor: float, minimo: int = 1, maximo: int = 5) -> int:
-    return max(minimo, min(maximo, int(round(valor))))
+def _tokens(texto: str) -> list[str]:
+    texto_n = _normalizar(texto)
+    tokens = [t for t in texto_n.split() if len(t) > 2]
+    return [t for t in tokens if t not in STOPWORDS]
 
 
 def _nivel(puntaje: int) -> str:
@@ -137,60 +86,91 @@ def _nivel(puntaje: int) -> str:
     return "Excelente"
 
 
+def _clamp(valor: float, minimo: int = 1, maximo: int = 5) -> int:
+    return max(minimo, min(maximo, int(round(valor))))
+
+
 def _contiene_alguna(texto: str, lista: list[str]) -> bool:
     texto_n = _normalizar(texto)
     return any(item in texto_n for item in lista)
 
 
-def _contar_terminos_juridicos(texto: str) -> int:
-    texto_n = _normalizar(texto)
-    return sum(1 for termino in TERMINOS_JURIDICOS if termino in texto_n)
+def _texto_referencia(caso: dict[str, Any] | None, contexto_recuperado: list[dict[str, Any]]) -> str:
+    partes: list[str] = []
+
+    if isinstance(caso, dict):
+        partes.append(str(caso.get("titulo", "")))
+        partes.append(str(caso.get("enunciado", "")))
+        partes.append(" ".join(caso.get("contexto", []) or []))
+        partes.append(" ".join(caso.get("instrucciones", []) or []))
+
+    for item in contexto_recuperado:
+        if isinstance(item, dict):
+            partes.append(str(item.get("fragmento", "")))
+
+    return " ".join(partes).strip()
 
 
-def _top_fragmento(respuesta: str, contexto_recuperado: list[dict[str, Any]]) -> str:
+def _fragmento_mas_relevante(
+    respuesta: str,
+    contexto_recuperado: list[dict[str, Any]],
+) -> str:
     if not contexto_recuperado:
         return ""
 
-    resp_vec = _vector(respuesta)
-    mejor = ""
-    mejor_score = -1.0
+    resp_tokens = set(_tokens(respuesta))
+    mejor_fragmento = ""
+    mejor_score = 0.0
 
     for item in contexto_recuperado:
-        fragmento = item.get("fragmento", "") if isinstance(item, dict) else ""
+        if not isinstance(item, dict):
+            continue
+
+        fragmento = str(item.get("fragmento", "")).strip()
         if not fragmento:
             continue
 
-        frag_vec = _vector(fragmento)
-        sim = _coseno(resp_vec, frag_vec)
+        frag_tokens = set(_tokens(fragmento))
+        if not frag_tokens:
+            continue
 
-        if sim > mejor_score:
-            mejor_score = sim
-            mejor = fragmento
+        score = len(resp_tokens & frag_tokens) / len(frag_tokens)
+        if score > mejor_score:
+            mejor_score = score
+            mejor_fragmento = fragmento
 
-    return mejor
+    return mejor_fragmento
 
 
 def _palabras_clave_caso(caso: dict[str, Any]) -> list[str]:
-    texto = " ".join([
-        str(caso.get("titulo", "")),
-        str(caso.get("enunciado", "")),
-        " ".join(caso.get("contexto", [])),
-        " ".join(caso.get("instrucciones", [])),
-    ])
-    tokens = _tokens_limpios(texto)
-
-    freq = Counter(tokens)
-    claves = [tok for tok, n in freq.items() if n >= 2 or len(tok) >= 6]
+    texto = " ".join(
+        [
+            str(caso.get("titulo", "")),
+            str(caso.get("enunciado", "")),
+            " ".join(caso.get("contexto", []) or []),
+            " ".join(caso.get("instrucciones", []) or []),
+        ]
+    )
+    tokens = _tokens(texto)
+    claves = [tok for tok in tokens if len(tok) >= 6]
     return list(dict.fromkeys(claves))
 
 
 def _indice_relevancia_lexica(respuesta: str, palabras_clave: list[str]) -> float:
-    resp = set(_tokens_limpios(respuesta))
+    resp = set(_tokens(respuesta))
     keys = set(palabras_clave)
-    if not keys:
+    if not keys or not resp:
         return 0.0
     overlap = resp.intersection(keys)
     return len(overlap) / len(keys)
+
+
+def _cobertura_referencia(respuesta: str, texto_referencia: str) -> float:
+    resp = set(_tokens(respuesta))
+    ref = set(_tokens(texto_referencia))
+    if not resp or not ref:
+        return 0.0
+    return len(resp.intersection(ref)) / len(ref)
 
 
 def evaluar_semantica(
@@ -199,83 +179,75 @@ def evaluar_semantica(
     contexto_recuperado: list[dict[str, Any]],
 ) -> dict[str, Any]:
     respuesta = respuesta or ""
-    palabras = _palabras(respuesta)
+    texto_n = _normalizar(respuesta)
+    palabras = _tokens(respuesta)
     n_palabras = len(palabras)
 
-    texto_caso = " ".join([
-        caso.get("titulo", ""),
-        caso.get("enunciado", ""),
-        " ".join(caso.get("contexto", [])),
-        " ".join(caso.get("instrucciones", [])),
-    ]).strip()
+    texto_caso = " ".join(
+        [
+            str(caso.get("titulo", "")),
+            str(caso.get("enunciado", "")),
+            " ".join(caso.get("contexto", []) or []),
+            " ".join(caso.get("instrucciones", []) or []),
+        ]
+    ).strip()
 
     texto_contexto = " ".join(
-        item.get("fragmento", "")
+        str(item.get("fragmento", ""))
         for item in contexto_recuperado
         if isinstance(item, dict)
     ).strip()
 
-    vec_respuesta = _vector(respuesta)
-    vec_caso = _vector(texto_caso)
-    vec_contexto = _vector(texto_contexto)
-
-    similitud_caso = _coseno(vec_respuesta, vec_caso)
-    similitud_contexto = _coseno(vec_respuesta, vec_contexto)
-
     palabras_clave = _palabras_clave_caso(caso)
     indice_lexico = _indice_relevancia_lexica(respuesta, palabras_clave)
 
-    indice_relevancia_caso = round(
-        (0.55 * max(similitud_caso, similitud_contexto)) + (0.45 * indice_lexico),
-        4
-    )
+    similitud_caso = _cobertura_referencia(respuesta, texto_caso)
+    similitud_contexto = _cobertura_referencia(respuesta, texto_contexto)
 
     if indice_lexico < 0.10:
-        indice_relevancia_caso = min(indice_relevancia_caso, 0.15)
+        indice_relevancia_caso = min((0.6 * similitud_caso) + (0.4 * indice_lexico), 0.15)
     elif indice_lexico < 0.20:
-        indice_relevancia_caso = min(indice_relevancia_caso, 0.25)
+        indice_relevancia_caso = min((0.6 * similitud_caso) + (0.4 * indice_lexico), 0.25)
     elif indice_lexico < 0.30:
-        indice_relevancia_caso = min(indice_relevancia_caso, 0.35)
+        indice_relevancia_caso = min((0.6 * similitud_caso) + (0.4 * indice_lexico), 0.35)
+    else:
+        indice_relevancia_caso = (0.6 * similitud_caso) + (0.4 * indice_lexico)
 
-    terminos_juridicos = _contar_terminos_juridicos(respuesta)
-    conectores = sum(1 for c in CONECTORES if c in _normalizar(respuesta))
-    conclusion = _contiene_alguna(respuesta, MARCADORES_CONCLUSION)
-    desconocimiento = _contiene_alguna(respuesta, FRASES_DESCONOCIMIENTO)
+    conectores = sum(1 for c in CONECTORES if c in texto_n)
+    conclusion = _contiene_alguna(texto_n, MARCADORES_CONCLUSION)
+    premisas = _contiene_alguna(texto_n, MARCADORES_PREMISA)
+    desconocimiento = _contiene_alguna(texto_n, FRASES_DESCONOCIMIENTO)
 
     score_caso = 1 + (indice_relevancia_caso * 4.0)
-    score_contexto = 1 + ((max(similitud_contexto, indice_lexico)) * 4.0)
+    score_contexto = 1 + (max(similitud_contexto, indice_lexico) * 4.0)
 
     if conclusion:
         score_caso += 0.25
         score_contexto += 0.15
-
-    if terminos_juridicos > 0:
-        score_caso += min(terminos_juridicos, 2) * 0.15
-        score_contexto += min(terminos_juridicos, 2) * 0.15
 
     score_caso = _clamp(score_caso)
     score_contexto = _clamp(score_contexto)
 
     obs_caso = (
         "La respuesta guarda relación semántica con el caso."
-        if score_caso >= 4 else
-        "La relación con el caso todavía es limitada."
+        if score_caso >= 4
+        else "La relación con el caso todavía es limitada."
     )
     rec_caso = (
-        "Mantén el foco en el problema jurídico planteado."
-        if score_caso < 4 else
         "La respuesta está bien alineada con el caso."
+        if score_caso >= 4
+        else "Mantén el foco en el problema jurídico planteado."
     )
 
     obs_contexto = (
         "La respuesta se apoya en parte del contexto recuperado."
-        if score_contexto >= 4 else
-        "La respuesta usa poco el contexto recuperado."
+        if score_contexto >= 4
+        else "La respuesta usa poco el contexto recuperado."
     )
     rec_contexto = (
-        "Vincula explícitamente tus ideas con el contexto jurídico recuperado."
-        if score_contexto < 4 else
         "El sustento contextual es adecuado."
+        if score_contexto >= 4
+        else "Vincula explícitamente tus ideas con el contexto jurídico recuperado."
     )
 
     score_argumento = 1
@@ -287,27 +259,28 @@ def evaluar_semantica(
         score_argumento += 1
     if conclusion:
         score_argumento += 1
-    if n_palabras >= 80:
+    if premisas:
         score_argumento += 1
+
     if desconocimiento and n_palabras < 12:
         score_argumento = 1
 
     score_argumento = _clamp(score_argumento)
     obs_argumento = (
         "La respuesta muestra un desarrollo argumentativo aceptable."
-        if score_argumento >= 4 else
-        "La respuesta todavía necesita más desarrollo argumentativo."
+        if score_argumento >= 4
+        else "La respuesta todavía necesita más desarrollo argumentativo."
     )
     rec_argumento = (
-        "Amplía la respuesta con premisas, análisis y conclusión."
-        if score_argumento < 4 else
         "El desarrollo argumentativo es sólido."
+        if score_argumento >= 4
+        else "Amplía la respuesta con premisas, análisis y conclusión."
     )
 
     inconsistencia_penalizacion = 0
     if desconocimiento and n_palabras < 12:
         inconsistencia_penalizacion += 2
-    if "pero" in _normalizar(respuesta) and "sin embargo" not in _normalizar(respuesta):
+    if "pero" in texto_n and "sin embargo" not in texto_n:
         inconsistencia_penalizacion += 1
 
     score_consistencia = 3 + (similitud_caso * 1.0) + (similitud_contexto * 0.75) - inconsistencia_penalizacion
@@ -315,13 +288,13 @@ def evaluar_semantica(
 
     obs_consistencia = (
         "La respuesta mantiene una coherencia semántica razonable."
-        if score_consistencia >= 4 else
-        "La coherencia semántica aún puede fortalecerse."
+        if score_consistencia >= 4
+        else "La coherencia semántica aún puede fortalecerse."
     )
     rec_consistencia = (
-        "Revisa si tus afirmaciones se sostienen entre sí."
-        if score_consistencia < 4 else
         "La consistencia semántica es adecuada."
+        if score_consistencia >= 4
+        else "Revisa si tus afirmaciones se sostienen entre sí."
     )
 
     criterios = [
@@ -374,7 +347,7 @@ def evaluar_semantica(
     observaciones = [c["observacion"] for c in criterios]
     recomendaciones = [c["recomendacion"] for c in criterios]
 
-    evidencia = _top_fragmento(respuesta, contexto_recuperado)
+    evidencia = _fragmento_mas_relevante(respuesta, contexto_recuperado)
 
     return {
         "puntaje_total": puntaje_total,

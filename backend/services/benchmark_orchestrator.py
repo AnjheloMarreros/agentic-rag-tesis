@@ -61,13 +61,6 @@ def _extraer_resumen(resultado: dict[str, Any]) -> dict[str, Any]:
         cuerpo = resultado
 
     evaluacion = cuerpo.get("evaluacion") if isinstance(cuerpo.get("evaluacion"), dict) else {}
-    semantica = (
-        cuerpo.get("evaluacion_semantica")
-        if isinstance(cuerpo.get("evaluacion_semantica"), dict)
-        else {}
-    )
-
-    resumen = resultado.get("resumen") if isinstance(resultado.get("resumen"), dict) else {}
 
     return {
         "ok": bool(resultado.get("ok", False)),
@@ -75,29 +68,23 @@ def _extraer_resumen(resultado: dict[str, Any]) -> dict[str, Any]:
         "puntaje_total": _float_or_none(
             evaluacion.get("puntaje_total")
             or cuerpo.get("puntaje_total")
-            or resumen.get("puntaje_total")
         ) or 0.0,
         "nivel_global": evaluacion.get("nivel_global") or cuerpo.get("nivel_global") or "N/D",
         "puntaje_rubrica": _float_or_none(
             evaluacion.get("puntaje_rubrica")
             or cuerpo.get("puntaje_rubrica")
-            or resumen.get("puntaje_rubrica")
         ) or 0.0,
         "puntaje_semantico": _float_or_none(
             evaluacion.get("puntaje_semantico")
             or cuerpo.get("puntaje_semantico")
-            or resumen.get("puntaje_semantico")
         ) or 0.0,
         "indice_relevancia_caso": _float_or_none(
             evaluacion.get("indice_relevancia_caso")
-            or semantica.get("indice_relevancia_caso")
             or cuerpo.get("indice_relevancia_caso")
-            or resumen.get("indice_relevancia_caso")
         ) or 0.0,
         "indice_relevancia_lexica": _float_or_none(
-            semantica.get("indice_relevancia_lexica")
+            evaluacion.get("indice_relevancia_lexica")
             or cuerpo.get("indice_relevancia_lexica")
-            or resumen.get("indice_relevancia_lexica")
         ) or 0.0,
         "error": resultado.get("error", ""),
     }
@@ -146,6 +133,8 @@ def _construir_resultado_benchmark(
     relevancia_caso = _promedio([r.get("indice_relevancia_caso") for r in exitosos])
     relevancia_lexica = _promedio([r.get("indice_relevancia_lexica") for r in exitosos])
 
+    timestamp = datetime.now(timezone.utc).isoformat()
+
     benchmark_evaluacion = {
         "puntaje_total": puntaje_total,
         "nivel_global": _nivel_global(puntaje_total),
@@ -171,7 +160,7 @@ def _construir_resultado_benchmark(
         ],
         "recomendaciones": [
             "Compara ambos pipelines con el mismo benchmark_id y sample_id.",
-            "Usa estos resultados para documentar la corrida en la tesis.",
+            "Usa esta corrida como evidencia comparativa en la tesis.",
         ],
     }
 
@@ -189,7 +178,13 @@ def _construir_resultado_benchmark(
         },
         "evaluacion": benchmark_evaluacion,
         "retroalimentacion": benchmark_retroalimentacion,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "puntaje_total": puntaje_total,
+        "nivel_global": _nivel_global(puntaje_total),
+        "puntaje_rubrica": puntaje_rubrica,
+        "puntaje_semantico": puntaje_semantico,
+        "indice_relevancia_caso": relevancia_caso,
+        "indice_relevancia_lexica": relevancia_lexica,
+        "timestamp": timestamp,
     }
 
     return {
@@ -214,7 +209,7 @@ def _construir_resultado_benchmark(
         },
         "langgraph": resultado_langgraph,
         "langchain": resultado_langchain,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": timestamp,
     }
 
 

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
-from datetime import datetime, timezone
 import json
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -34,10 +34,15 @@ def _normalize_text(value: Any) -> str:
 def _normalize_list(value: Any) -> list[str]:
     if value is None:
         return []
-    if isinstance(value, list):
-        return [_normalize_text(item) for item in value if _normalize_text(item)]
-    if isinstance(value, tuple):
-        return [_normalize_text(item) for item in value if _normalize_text(item)]
+
+    if isinstance(value, (list, tuple)):
+        cleaned: list[str] = []
+        for item in value:
+            text = _normalize_text(item)
+            if text:
+                cleaned.append(text)
+        return cleaned
+
     text = _normalize_text(value)
     return [text] if text else []
 
@@ -71,10 +76,12 @@ def _load_jsonl(path: Path) -> list[dict[str, Any]]:
                 continue
             try:
                 item = json.loads(raw)
-                if isinstance(item, dict):
-                    rows.append(item)
             except Exception:
                 continue
+
+            if isinstance(item, dict):
+                rows.append(item)
+
     return rows
 
 
@@ -92,20 +99,17 @@ def _iter_candidate_events(log_files: Iterable[Path]):
             if not isinstance(data, dict):
                 continue
 
-            payload_pipeline = _normalize_text(data.get("pipeline")) or event_name
             benchmark_id = _normalize_text(
                 data.get("benchmark_id")
                 or row.get("benchmark_id")
                 or data.get("run_id")
                 or row.get("run_id")
             )
-            timestamp = _parse_timestamp(row.get("timestamp") or data.get("timestamp"))
 
             yield {
                 "event_name": event_name,
-                "payload_pipeline": payload_pipeline,
                 "benchmark_id": benchmark_id,
-                "timestamp": timestamp,
+                "timestamp": _parse_timestamp(row.get("timestamp") or data.get("timestamp")),
                 "payload": data,
             }
 
@@ -204,26 +208,20 @@ def build_dataset_from_logs(
     log_files: list[str | Path] | None = None,
     benchmark_id: str | None = None,
 ):
-    """
-    Construye un dataset compatible con RAGAS únicamente desde eventos de evaluación
-    reales (evaluacion_langgraph / evaluacion_langchain).
-
-    Si benchmark_id es None, se toma la corrida más reciente encontrada en los logs.
-    """
     files = [Path(p) for p in (log_files or DEFAULT_LOG_FILES)]
     selected_benchmark_id = benchmark_id or find_latest_benchmark_id(files)
 
     samples: list[SingleTurnSample] = []
 
     for item in _iter_candidate_events(files):
-        event_name = item["event_name"]
-        payload = item["payload"]
-        payload_benchmark_id = item["benchmark_id"]
-
-        if event_name not in ALLOWED_EVENT_TYPES:
+        if item["event_name"] not in ALLOWED_EVENT_TYPES:
             continue
 
-        if selected_benchmark_id and payload_benchmark_id != selected_benchmark_id:
+        if selected_benchmark_id and item["benchmark_id"] != selected_benchmark_id:
+            continue
+
+        payload = item["payload"]
+        if not isinstance(payload, dict):
             continue
 
         user_input = _build_user_input(payload)
@@ -250,4 +248,4 @@ def build_dataset_from_logs(
     try:
         return EvaluationDataset(samples=samples)
     except Exception:
-        return EvaluationDataset.from_list(samples)  # type: ignore[attr-defined]
+        return EvaluationDataset.from_list(samples)
