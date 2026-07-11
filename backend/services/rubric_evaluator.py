@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+import unicodedata
 
 
 CONECTORES = [
@@ -45,12 +46,19 @@ STOPWORDS = {
 
 
 def _normalizar(texto: str) -> str:
-    return " ".join((texto or "").lower().split()).strip()
+    texto = (texto or "").lower()
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = texto.replace("¿", " ").replace("?", " ").replace("¡", " ").replace("!", " ")
+    texto = texto.replace(".", " ").replace(",", " ").replace(";", " ").replace(":", " ")
+    texto = texto.replace("(", " ").replace(")", " ").replace("[", " ").replace("]", " ")
+    texto = texto.replace("{", " ").replace("}", " ").replace("/", " ").replace("\\", " ")
+    return " ".join(texto.split()).strip()
 
 
 def _tokens(texto: str) -> list[str]:
     texto_n = _normalizar(texto)
-    tokens = [t for t in texto_n.replace(".", " ").replace(",", " ").split() if len(t) > 2]
+    tokens = [t for t in texto_n.split() if len(t) > 2]
     return [t for t in tokens if t not in STOPWORDS]
 
 
@@ -71,21 +79,54 @@ def _nivel(puntaje: int) -> str:
     return "Excelente"
 
 
+def _agregar_texto(partes: list[str], valor: Any) -> None:
+    if valor is None:
+        return
+    if isinstance(valor, str):
+        texto = valor.strip()
+        if texto:
+            partes.append(texto)
+        return
+    if isinstance(valor, list):
+        for item in valor:
+            if item is None:
+                continue
+            texto = str(item).strip()
+            if texto:
+                partes.append(texto)
+        return
+    texto = str(valor).strip()
+    if texto:
+        partes.append(texto)
+
+
 def _texto_referencia(caso: Any, fuentes: Any) -> str:
     partes: list[str] = []
 
     if isinstance(caso, dict):
-        partes.append(str(caso.get("titulo", "")))
-        partes.append(str(caso.get("enunciado", "")))
-        partes.append(" ".join(caso.get("contexto", []) or []))
-        partes.append(" ".join(caso.get("instrucciones", []) or []))
+        _agregar_texto(partes, caso.get("titulo", ""))
+        _agregar_texto(partes, caso.get("enunciado", ""))
+        _agregar_texto(partes, caso.get("contexto", []))
+        _agregar_texto(partes, caso.get("instrucciones", []))
 
     if isinstance(fuentes, list):
         for item in fuentes:
             if isinstance(item, dict):
-                partes.append(str(item.get("fragmento", "")))
+                _agregar_texto(partes, item.get("fragmento", ""))
 
     return " ".join(partes).strip()
+
+
+def _coincidencia_fuzzy(token: str, referencia: str) -> bool:
+    if token == referencia:
+        return True
+    if len(token) >= 4 and len(referencia) >= 4:
+        pref = 5 if len(token) >= 5 and len(referencia) >= 5 else 4
+        if token[:pref] == referencia[:pref]:
+            return True
+        if token in referencia or referencia in token:
+            return True
+    return False
 
 
 def calcular_estructura(texto: str):
@@ -115,6 +156,12 @@ def calcular_estructura(texto: str):
     else:
         recomendacion.append("Usa más conectores argumentativos.")
 
+    if any(m in texto_n for m in MARCADORES_PREMISA):
+        puntaje += 1
+        observacion.append("La respuesta presenta estructura de premisas o fundamento.")
+    else:
+        recomendacion.append("Incluye premisas explícitas o un sustento inicial claro.")
+
     if any(m in texto_n for m in MARCADORES_CONCLUSION):
         puntaje += 1
         observacion.append("La respuesta incluye una conclusión explícita.")
@@ -134,8 +181,9 @@ def calcular_estructura(texto: str):
 def calcular_relevancia(texto: str, caso: Any = None, fuentes: Any = None):
     texto_n = _normalizar(texto)
     ref_texto = _texto_referencia(caso, fuentes)
-    ref_tokens = set(_tokens(ref_texto))
-    resp_tokens = set(_tokens(texto_n))
+
+    ref_tokens = list(dict.fromkeys(_tokens(ref_texto)))
+    resp_tokens = list(dict.fromkeys(_tokens(texto_n)))
 
     if not ref_tokens or not resp_tokens:
         puntaje = 1
@@ -146,29 +194,57 @@ def calcular_relevancia(texto: str, caso: Any = None, fuentes: Any = None):
             "recomendacion": "Vincula tu respuesta de forma más directa con el caso planteado.",
         }
 
-    coincidencias = resp_tokens.intersection(ref_tokens)
-    n = len(coincidencias)
+    exactas = set(resp_tokens).intersection(ref_tokens)
 
-    if n >= 12:
+    fuzzy: set[str] = set()
+    for token in resp_tokens:
+        if token in exactas:
+            continue
+        for ref in ref_tokens:
+            if _coincidencia_fuzzy(token, ref):
+                fuzzy.add(token)
+                break
+
+    coincidencias_ponderadas = len(exactas) + (0.6 * len(fuzzy))
+    cobertura_referencia = coincidencias_ponderadas / max(1, len(ref_tokens))
+    cobertura_respuesta = coincidencias_ponderadas / max(1, len(resp_tokens))
+    score_ratio = (0.65 * cobertura_referencia) + (0.35 * cobertura_respuesta)
+
+    if coincidencias_ponderadas <= 0:
+        puntaje = 1
+    elif score_ratio >= 0.30:
         puntaje = 5
-    elif n >= 8:
+    elif score_ratio >= 0.22:
         puntaje = 4
-    elif n >= 5:
+    elif score_ratio >= 0.14:
         puntaje = 3
-    elif n >= 2:
+    elif score_ratio >= 0.06:
         puntaje = 2
     else:
         puntaje = 1
 
+    if coincidencias_ponderadas > 0:
+        puntaje = max(puntaje, 2)
+        if coincidencias_ponderadas >= 4:
+            puntaje = max(puntaje, 3)
+
+    observacion = (
+        f"La respuesta mantiene {len(exactas)} coincidencias exactas y {len(fuzzy)} coincidencias aproximadas relevantes con el caso."
+        if coincidencias_ponderadas > 0
+        else "La respuesta no presenta coincidencias relevantes con el caso."
+    )
+
+    recomendacion = (
+        "La pertinencia con el caso es adecuada."
+        if puntaje >= 4
+        else "Relaciona más tu respuesta con hechos, problema y sustento jurídico del caso."
+    )
+
     return {
         "puntaje": puntaje,
         "nivel": _nivel(puntaje),
-        "observacion": f"La respuesta mantiene {n} coincidencias relevantes con el caso.",
-        "recomendacion": (
-            "La pertinencia con el caso es adecuada."
-            if puntaje >= 4
-            else "Relaciona más tu respuesta con el problema jurídico concreto."
-        ),
+        "observacion": observacion,
+        "recomendacion": recomendacion,
     }
 
 
@@ -250,6 +326,12 @@ def evaluar_respuesta_con_rubrica(
     total = 0.0
 
     criterios_rubrica = rubrica.get("criterios", []) if isinstance(rubrica, dict) else []
+    criterios_rubrica = [
+        c for c in criterios_rubrica
+        if c.get("clave") != "relevancia_caso"
+        and c.get("nombre") != "Relevancia con el caso"
+    ]
+
     if not criterios_rubrica:
         criterios_rubrica = [
             {"clave": "estructura_logica", "nombre": "Estructura lógica del argumento", "peso": 0.25},
@@ -260,7 +342,10 @@ def evaluar_respuesta_con_rubrica(
 
     for criterio in criterios_rubrica:
         clave = criterio["clave"]
-        resultado = evaluaciones.get(clave, {"puntaje": 1, "nivel": "Muy bajo", "observacion": "", "recomendacion": ""})
+        resultado = evaluaciones.get(
+            clave,
+            {"puntaje": 1, "nivel": "Muy bajo", "observacion": "", "recomendacion": ""},
+        )
         puntaje = resultado["puntaje"]
         peso = criterio.get("peso", 0.25)
 
@@ -293,6 +378,7 @@ def evaluar_respuesta_con_rubrica(
 
     return {
         "puntaje_total": porcentaje,
+        "puntaje_total_rubrica": porcentaje,
         "nivel_global": nivel_global,
         "resumen": (
             f"Tu respuesta obtuvo {porcentaje}% de coherencia argumentativa. "

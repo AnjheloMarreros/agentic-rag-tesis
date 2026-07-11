@@ -26,7 +26,11 @@ class EvaluacionState(TypedDict, total=False):
     evaluacion_rubrica: dict[str, Any]
     evaluacion_semantica: dict[str, Any]
     evaluacion: dict[str, Any]
+    evaluacion_visible: dict[str, Any]
+    evaluacion_interna: dict[str, Any]
     retroalimentacion: dict[str, Any]
+    retroalimentacion_visible: dict[str, Any]
+    retroalimentacion_interna: dict[str, Any]
     resultado_final: dict[str, Any]
 
 
@@ -190,7 +194,7 @@ def _construir_resultado_final(
         evaluacion_semantica=evaluacion_semantica,
     )
 
-    retroalimentacion = _construir_retroalimentacion(
+    retroalimentacion_interna = _construir_retroalimentacion(
         evaluacion_rubrica=evaluacion_rubrica,
         evaluacion_semantica=evaluacion_semantica,
     )
@@ -204,6 +208,46 @@ def _construir_resultado_final(
         ]
     ).strip()
 
+    criterios_visibles = [
+        c for c in list(evaluacion_rubrica.get("criterios", []))
+        if c.get("clave") != "relevancia_caso"
+        and c.get("nombre") != "Relevancia con el caso"
+    ]
+
+    puntaje_rubrica_visible = _float_safe(evaluacion_rubrica.get("puntaje_total", 0.0))
+    nivel_rubrica_visible = (
+        evaluacion_rubrica.get("nivel_global")
+        or _nivel_global(puntaje_rubrica_visible)
+    )
+
+    resumen_visible = (
+        f"Tu respuesta obtuvo {puntaje_rubrica_visible}% de coherencia argumentativa. "
+        f"El nivel global es {nivel_rubrica_visible}."
+    )
+
+    evaluacion_visible = {
+        "puntaje_total": round(puntaje_rubrica_visible, 1),
+        "nivel_global": nivel_rubrica_visible,
+        "resumen": resumen_visible,
+        "puntaje_rubrica": round(puntaje_rubrica_visible, 1),
+        "criterios": criterios_visibles,
+        "recomendaciones_generales": list(evaluacion_rubrica.get("recomendaciones_generales", [])),
+    }
+
+    retroalimentacion_visible = {
+        "estado": "evaluado",
+        "resumen": resumen_visible,
+        "observaciones": [],
+        "recomendaciones": [],
+    }
+
+    for item in criterios_visibles:
+        nombre = item.get("nombre", "Criterio")
+        if item.get("observacion"):
+            retroalimentacion_visible["observaciones"].append(f"{nombre}: {item['observacion']}")
+        if item.get("recomendacion"):
+            retroalimentacion_visible["recomendaciones"].append(f"{nombre}: {item['recomendacion']}")
+
     resultado = {
         "caso_id": state["caso_id"],
         "sample_id": state.get("sample_id", ""),
@@ -216,8 +260,12 @@ def _construir_resultado_final(
         "contexto_recuperado": contexto_recuperado,
         "evaluacion_rubrica": evaluacion_rubrica,
         "evaluacion_semantica": evaluacion_semantica,
-        "evaluacion": evaluacion_consolidada,
-        "retroalimentacion": retroalimentacion,
+        "evaluacion_interna": evaluacion_consolidada,
+        "retroalimentacion_interna": retroalimentacion_interna,
+        "evaluacion": evaluacion_visible,
+        "evaluacion_visible": evaluacion_visible,
+        "retroalimentacion": retroalimentacion_visible,
+        "retroalimentacion_visible": retroalimentacion_visible,
         "texto_caso": texto_caso,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
@@ -242,7 +290,7 @@ def _construir_resultado_final(
             "rubric_result": evaluacion_rubrica,
             "semantic_result": evaluacion_semantica,
             "evaluacion": evaluacion_consolidada,
-            "retroalimentacion": retroalimentacion,
+            "retroalimentacion": retroalimentacion_interna,
             "puntaje_total": evaluacion_consolidada.get("puntaje_total", 0.0),
             "puntaje_semantico": evaluacion_semantica.get("puntaje_total", 0.0),
             "fuentes_recuperadas": len(contexto_recuperado),

@@ -95,18 +95,39 @@ def _contiene_alguna(texto: str, lista: list[str]) -> bool:
     return any(item in texto_n for item in lista)
 
 
+def _agregar_texto(partes: list[str], valor: Any) -> None:
+    if valor is None:
+        return
+    if isinstance(valor, str):
+        texto = valor.strip()
+        if texto:
+            partes.append(texto)
+        return
+    if isinstance(valor, list):
+        for item in valor:
+            if item is None:
+                continue
+            texto = str(item).strip()
+            if texto:
+                partes.append(texto)
+        return
+    texto = str(valor).strip()
+    if texto:
+        partes.append(texto)
+
+
 def _texto_referencia(caso: dict[str, Any] | None, contexto_recuperado: list[dict[str, Any]]) -> str:
     partes: list[str] = []
 
     if isinstance(caso, dict):
-        partes.append(str(caso.get("titulo", "")))
-        partes.append(str(caso.get("enunciado", "")))
-        partes.append(" ".join(caso.get("contexto", []) or []))
-        partes.append(" ".join(caso.get("instrucciones", []) or []))
+        _agregar_texto(partes, caso.get("titulo", ""))
+        _agregar_texto(partes, caso.get("enunciado", ""))
+        _agregar_texto(partes, caso.get("contexto", []))
+        _agregar_texto(partes, caso.get("instrucciones", []))
 
     for item in contexto_recuperado:
         if isinstance(item, dict):
-            partes.append(str(item.get("fragmento", "")))
+            _agregar_texto(partes, item.get("fragmento", ""))
 
     return " ".join(partes).strip()
 
@@ -220,6 +241,11 @@ def evaluar_semantica(
 
     score_caso = 1 + (indice_relevancia_caso * 4.0)
     score_contexto = 1 + (max(similitud_contexto, indice_lexico) * 4.0)
+
+    if (similitud_caso > 0 or indice_lexico > 0) and score_caso < 2:
+        score_caso = 2
+    if (similitud_contexto > 0 or indice_lexico > 0) and score_contexto < 2:
+        score_contexto = 2
 
     if conclusion:
         score_caso += 0.25
