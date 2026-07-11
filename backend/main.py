@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,9 +8,11 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Form, HTTPException, Query, Response
+from fastapi import FastAPI, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.responses import HTMLResponse
+
 from backend.services.case_loader import cargar_caso, listar_casos
+from backend.services.deepgram_stt import transcribir_audio_deepgram
 from backend.services.input_handler import normalizar_texto
 from backend.services.logs import registrar_evento
 from backend.services.result_store import (
@@ -26,8 +29,8 @@ load_dotenv(BASE_DIR.parent / ".env")
 
 app = FastAPI(
     title="Agentic RAG Tesis MVP",
-    version="0.8.0",
-    description="Backend con casos, texto, benchmark dual, LangGraph, LangChain y RAGAS.",
+    version="0.9.0",
+    description="Backend con casos, voz, benchmark dual, LangGraph, LangChain y RAGAS.",
 )
 
 
@@ -108,6 +111,75 @@ def _extraer_componentes_benchmark(resultado: Any) -> dict[str, dict[str, Any]]:
     return componentes
 
 
+async def _transcribir_audio_recibido(archivo_audio: UploadFile) -> str:
+    audio_bytes = await archivo_audio.read()
+    try:
+        if not audio_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail="El audio está vacío.",
+            )
+
+        texto = await asyncio.to_thread(
+            transcribir_audio_deepgram,
+            audio_bytes,
+            archivo_audio.content_type,
+            archivo_audio.filename,
+        )
+
+        return texto.strip()
+    finally:
+        try:
+            await archivo_audio.close()
+        except Exception:
+            pass
+
+
+async def _obtener_texto_procesado(
+    tipo_entrada: str,
+    texto: str,
+    archivo_audio: Optional[UploadFile] = None,
+) -> tuple[str, str]:
+    tipo = (tipo_entrada or "").lower().strip()
+
+    if tipo == "texto":
+        contenido = normalizar_texto(texto)
+        if not contenido:
+            raise HTTPException(
+                status_code=400,
+                detail="Debes escribir un texto para evaluar.",
+            )
+        return "texto", contenido
+
+    if tipo == "audio":
+        if archivo_audio is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Debes grabar y enviar un audio.",
+            )
+
+        contenido = await _transcribir_audio_recibido(archivo_audio)
+        if not contenido:
+            raise HTTPException(
+                status_code=400,
+                detail="No se pudo transcribir el audio.",
+            )
+
+        return "audio", contenido
+
+    raise HTTPException(
+        status_code=400,
+        detail="tipo_entrada debe ser 'texto' o 'audio'.",
+    )
+
+
+def _primer_valor_no_nulo(*valores):
+    for valor in valores:
+        if valor is not None and valor != "":
+            return valor
+    return None
+
+
 def _guardar_resultado_en_historial(
     *,
     caso_id: str,
@@ -172,6 +244,29 @@ def _guardar_resultado_en_historial(
             else summary.get("answer_relevancy")
         )
 
+        score_rubric = _primer_valor_no_nulo(
+            evaluacion_rubrica.get("puntaje_total"),
+            body.get("puntaje_rubrica"),
+            outer.get("puntaje_rubrica"),
+        )
+        if score_rubric is None:
+            score_rubric = _primer_valor_no_nulo(
+                evaluacion.get("puntaje_total"),
+                body.get("puntaje_total"),
+                outer.get("puntaje_total"),
+            )
+
+        score_semantic = _primer_valor_no_nulo(
+            evaluacion_semantica.get("puntaje_total"),
+            body.get("puntaje_semantico"),
+            outer.get("puntaje_semantico"),
+        )
+
+        score_consolidado = _primer_valor_no_nulo(
+            body.get("puntaje_total_consolidado"),
+            outer.get("puntaje_total_consolidado"),
+        )
+
         registro = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "case_id": caso_id,
@@ -181,21 +276,10 @@ def _guardar_resultado_en_historial(
             "pipeline": pipeline,
             "answer": answer,
             "case": caso,
-            "score_total": (
-                evaluacion.get("puntaje_total")
-                or body.get("puntaje_total")
-                or outer.get("puntaje_total")
-            ),
-            "score_semantic": (
-                evaluacion_semantica.get("puntaje_total")
-                or body.get("puntaje_semantico")
-                or outer.get("puntaje_semantico")
-            ),
-            "score_rubric": (
-                evaluacion_rubrica.get("puntaje_total")
-                or body.get("puntaje_rubrica")
-                or outer.get("puntaje_rubrica")
-            ),
+            "score_total": score_rubric,
+            "score_rubric": score_rubric,
+            "score_semantic": score_semantic,
+            "score_total_consolidado": score_consolidado,
             "relevance_case": (
                 evaluacion.get("indice_relevancia_caso")
                 or evaluacion_semantica.get("indice_relevancia_caso")
@@ -209,7 +293,12 @@ def _guardar_resultado_en_historial(
             ),
             "faithfulness": faithfulness,
             "answer_relevancy": answer_relevancy,
-            "feedback": retroalimentacion.get("resumen") or evaluacion.get("resumen") or "",
+            "feedback": (
+                evaluacion_rubrica.get("resumen")
+                or retroalimentacion.get("resumen")
+                or evaluacion.get("resumen")
+                or ""
+            ),
             "response_json": outer,
         }
 
@@ -296,7 +385,10 @@ def _guardar_resultado_ragas(resultado: Any, benchmark_id: str = "") -> None:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "case_id": "",
             "caso_id": "",
-            "benchmark_id": benchmark_id or resultado.get("benchmark_id_used") or resultado.get("benchmark_id") or "",
+            "benchmark_id": benchmark_id
+            or resultado.get("benchmark_id_used")
+            or resultado.get("benchmark_id")
+            or "",
             "sample_id": "",
             "pipeline": "ragas",
             "status": resultado.get("status", ""),
@@ -318,6 +410,159 @@ def _guardar_resultado_ragas(resultado: Any, benchmark_id: str = "") -> None:
         pass
 
 
+async def _evaluar_langgraph_base(
+    *,
+    caso_id: str,
+    tipo_entrada: str,
+    texto: str,
+    benchmark_id: Optional[str] = None,
+    sample_id: Optional[str] = None,
+    archivo_audio: Optional[UploadFile] = None,
+) -> dict[str, Any]:
+    benchmark_id_final, sample_id_final = _generar_identificadores_benchmark(
+        caso_id=caso_id,
+        benchmark_id=benchmark_id,
+        sample_id=sample_id,
+    )
+
+    tipo_normalizado, texto_procesado = await _obtener_texto_procesado(
+        tipo_entrada=tipo_entrada,
+        texto=texto,
+        archivo_audio=archivo_audio,
+    )
+
+    _registrar_respuesta_recibida(
+        caso_id=caso_id,
+        tipo_entrada=tipo_normalizado,
+        texto=texto_procesado,
+        benchmark_id=benchmark_id_final,
+        sample_id=sample_id_final,
+    )
+
+    from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
+
+    resultado = ejecutar_evaluacion_langgraph(
+        caso_id=caso_id,
+        tipo_entrada=tipo_normalizado,
+        texto=texto_procesado,
+        benchmark_id=benchmark_id_final,
+        sample_id=sample_id_final,
+    )
+
+    _guardar_resultado_benchmark(
+        caso_id=caso_id,
+        benchmark_id=benchmark_id_final,
+        sample_id=sample_id_final,
+        pipeline="langgraph",
+        answer=texto_procesado,
+        resultado=resultado,
+    )
+
+    return resultado
+
+
+async def _evaluar_langchain_base(
+    *,
+    caso_id: str,
+    tipo_entrada: str,
+    texto: str,
+    benchmark_id: Optional[str] = None,
+    sample_id: Optional[str] = None,
+    archivo_audio: Optional[UploadFile] = None,
+) -> dict[str, Any]:
+    benchmark_id_final, sample_id_final = _generar_identificadores_benchmark(
+        caso_id=caso_id,
+        benchmark_id=benchmark_id,
+        sample_id=sample_id,
+    )
+
+    tipo_normalizado, texto_procesado = await _obtener_texto_procesado(
+        tipo_entrada=tipo_entrada,
+        texto=texto,
+        archivo_audio=archivo_audio,
+    )
+
+    _registrar_respuesta_recibida(
+        caso_id=caso_id,
+        tipo_entrada=tipo_normalizado,
+        texto=texto_procesado,
+        benchmark_id=benchmark_id_final,
+        sample_id=sample_id_final,
+    )
+
+    from backend.services.langchain_bridge import ejecutar_evaluacion_langchain
+
+    resultado = ejecutar_evaluacion_langchain(
+        caso_id=caso_id,
+        tipo_entrada=tipo_normalizado,
+        texto=texto_procesado,
+        benchmark_id=benchmark_id_final,
+        sample_id=sample_id_final,
+    )
+
+    _guardar_resultado_benchmark(
+        caso_id=caso_id,
+        benchmark_id=benchmark_id_final,
+        sample_id=sample_id_final,
+        pipeline="langchain",
+        answer=texto_procesado,
+        resultado=resultado,
+    )
+
+    return resultado
+
+
+async def _evaluar_benchmark_base(
+    *,
+    caso_id: str,
+    tipo_entrada: str,
+    texto: str,
+    benchmark_id: Optional[str] = None,
+    sample_id: Optional[str] = None,
+    archivo_audio: Optional[UploadFile] = None,
+) -> dict[str, Any]:
+    benchmark_id_final, sample_id_final = _generar_identificadores_benchmark(
+        caso_id=caso_id,
+        benchmark_id=benchmark_id,
+        sample_id=sample_id,
+    )
+
+    tipo_normalizado, texto_procesado = await _obtener_texto_procesado(
+        tipo_entrada=tipo_entrada,
+        texto=texto,
+        archivo_audio=archivo_audio,
+    )
+
+    _registrar_respuesta_recibida(
+        caso_id=caso_id,
+        tipo_entrada=tipo_normalizado,
+        texto=texto_procesado,
+        benchmark_id=benchmark_id_final,
+        sample_id=sample_id_final,
+    )
+
+    from backend.services.benchmark_orchestrator import ejecutar_benchmark_dual
+
+    resultado = ejecutar_benchmark_dual(
+        caso_id=caso_id,
+        tipo_entrada_original=tipo_normalizado,
+        texto_procesado=texto_procesado,
+        benchmark_id=benchmark_id_final,
+        sample_id=sample_id_final,
+    )
+
+    _guardar_resultado_benchmark(
+        caso_id=caso_id,
+        benchmark_id=benchmark_id_final,
+        sample_id=sample_id_final,
+        pipeline="benchmark",
+        answer=texto_procesado,
+        resultado=resultado,
+    )
+
+    return resultado
+
+
 @app.get("/")
 def raiz():
     return {
@@ -328,8 +573,11 @@ def raiz():
             "/benchmark/start",
             "/evaluar-entrada",
             "/evaluar-langgraph",
+            "/evaluar-langgraph-voz",
             "/evaluar-langchain",
+            "/evaluar-langchain-voz",
             "/benchmark/evaluar",
+            "/benchmark/evaluar-voz",
             "/resultados",
             "/debug/logs-status",
             "/api/ragas/live",
@@ -382,55 +630,20 @@ async def evaluar_entrada(
     texto: str = Form(""),
     benchmark_id: Optional[str] = Form(None),
     sample_id: Optional[str] = Form(None),
+    archivo_audio: Optional[UploadFile] = File(None),
 ):
-    tipo_entrada = tipo_entrada.lower().strip()
-    benchmark_id_final, sample_id_final = _generar_identificadores_benchmark(
-        caso_id=caso_id,
-        benchmark_id=benchmark_id,
-        sample_id=sample_id,
-    )
-
-    if tipo_entrada != "texto":
-        raise HTTPException(
-            status_code=400,
-            detail="tipo_entrada debe ser 'texto'.",
+    try:
+        resultado = await _evaluar_langgraph_base(
+            caso_id=caso_id,
+            tipo_entrada=tipo_entrada,
+            texto=texto,
+            benchmark_id=benchmark_id,
+            sample_id=sample_id,
+            archivo_audio=archivo_audio,
         )
-
-    contenido = normalizar_texto(texto)
-    if not contenido:
-        raise HTTPException(
-            status_code=400,
-            detail="Debes escribir un texto para evaluar.",
-        )
-
-    _registrar_respuesta_recibida(
-        caso_id=caso_id,
-        tipo_entrada="texto",
-        texto=contenido,
-        benchmark_id=benchmark_id_final,
-        sample_id=sample_id_final,
-    )
-
-    from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
-
-    resultado = ejecutar_evaluacion_langgraph(
-        caso_id=caso_id,
-        tipo_entrada="texto",
-        texto=contenido,
-        benchmark_id=benchmark_id_final,
-        sample_id=sample_id_final,
-    )
-
-    _guardar_resultado_benchmark(
-        caso_id=caso_id,
-        benchmark_id=benchmark_id_final,
-        sample_id=sample_id_final,
-        pipeline="langgraph",
-        answer=contenido,
-        resultado=resultado,
-    )
-
-    return resultado
+        return resultado
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
 
 
 @app.post("/evaluar-langgraph")
@@ -440,49 +653,38 @@ async def evaluar_langgraph(
     texto: str = Form(""),
     benchmark_id: Optional[str] = Form(None),
     sample_id: Optional[str] = Form(None),
+    archivo_audio: Optional[UploadFile] = File(None),
 ):
-    tipo_entrada = tipo_entrada.lower().strip()
-    benchmark_id_final, sample_id_final = _generar_identificadores_benchmark(
-        caso_id=caso_id,
-        benchmark_id=benchmark_id,
-        sample_id=sample_id,
-    )
-
-    if tipo_entrada != "texto":
-        raise HTTPException(status_code=400, detail="tipo_entrada debe ser 'texto'.")
-
-    texto_procesado = normalizar_texto(texto)
-    if not texto_procesado:
-        raise HTTPException(status_code=400, detail="Debes escribir texto.")
-
-    _registrar_respuesta_recibida(
-        caso_id=caso_id,
-        tipo_entrada="texto",
-        texto=texto_procesado,
-        benchmark_id=benchmark_id_final,
-        sample_id=sample_id_final,
-    )
-
     try:
-        from backend.agents.argumentation_graph import ejecutar_evaluacion_langgraph
-
-        resultado = ejecutar_evaluacion_langgraph(
+        resultado = await _evaluar_langgraph_base(
             caso_id=caso_id,
-            tipo_entrada="texto",
-            texto=texto_procesado,
-            benchmark_id=benchmark_id_final,
-            sample_id=sample_id_final,
+            tipo_entrada=tipo_entrada,
+            texto=texto,
+            benchmark_id=benchmark_id,
+            sample_id=sample_id,
+            archivo_audio=archivo_audio,
         )
+        return resultado
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
 
-        _guardar_resultado_benchmark(
+
+@app.post("/evaluar-langgraph-voz")
+async def evaluar_langgraph_voz(
+    caso_id: str = Form("caso_001"),
+    benchmark_id: Optional[str] = Form(None),
+    sample_id: Optional[str] = Form(None),
+    archivo_audio: UploadFile = File(...),
+):
+    try:
+        resultado = await _evaluar_langgraph_base(
             caso_id=caso_id,
-            benchmark_id=benchmark_id_final,
-            sample_id=sample_id_final,
-            pipeline="langgraph",
-            answer=texto_procesado,
-            resultado=resultado,
+            tipo_entrada="audio",
+            texto="",
+            benchmark_id=benchmark_id,
+            sample_id=sample_id,
+            archivo_audio=archivo_audio,
         )
-
         return resultado
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
@@ -495,49 +697,38 @@ async def evaluar_langchain(
     texto: str = Form(""),
     benchmark_id: Optional[str] = Form(None),
     sample_id: Optional[str] = Form(None),
+    archivo_audio: Optional[UploadFile] = File(None),
 ):
-    tipo_entrada = tipo_entrada.lower().strip()
-    benchmark_id_final, sample_id_final = _generar_identificadores_benchmark(
-        caso_id=caso_id,
-        benchmark_id=benchmark_id,
-        sample_id=sample_id,
-    )
-
-    if tipo_entrada != "texto":
-        raise HTTPException(status_code=400, detail="tipo_entrada debe ser 'texto'.")
-
-    texto_procesado = normalizar_texto(texto)
-    if not texto_procesado:
-        raise HTTPException(status_code=400, detail="Debes escribir texto.")
-
-    _registrar_respuesta_recibida(
-        caso_id=caso_id,
-        tipo_entrada="texto",
-        texto=texto_procesado,
-        benchmark_id=benchmark_id_final,
-        sample_id=sample_id_final,
-    )
-
     try:
-        from backend.services.langchain_bridge import ejecutar_evaluacion_langchain
-
-        resultado = ejecutar_evaluacion_langchain(
+        resultado = await _evaluar_langchain_base(
             caso_id=caso_id,
-            tipo_entrada="texto",
-            texto=texto_procesado,
-            benchmark_id=benchmark_id_final,
-            sample_id=sample_id_final,
+            tipo_entrada=tipo_entrada,
+            texto=texto,
+            benchmark_id=benchmark_id,
+            sample_id=sample_id,
+            archivo_audio=archivo_audio,
         )
+        return resultado
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
 
-        _guardar_resultado_benchmark(
+
+@app.post("/evaluar-langchain-voz")
+async def evaluar_langchain_voz(
+    caso_id: str = Form("caso_001"),
+    benchmark_id: Optional[str] = Form(None),
+    sample_id: Optional[str] = Form(None),
+    archivo_audio: UploadFile = File(...),
+):
+    try:
+        resultado = await _evaluar_langchain_base(
             caso_id=caso_id,
-            benchmark_id=benchmark_id_final,
-            sample_id=sample_id_final,
-            pipeline="langchain",
-            answer=texto_procesado,
-            resultado=resultado,
+            tipo_entrada="audio",
+            texto="",
+            benchmark_id=benchmark_id,
+            sample_id=sample_id,
+            archivo_audio=archivo_audio,
         )
-
         return resultado
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
@@ -550,49 +741,38 @@ async def evaluar_benchmark(
     texto: str = Form(""),
     benchmark_id: Optional[str] = Form(None),
     sample_id: Optional[str] = Form(None),
+    archivo_audio: Optional[UploadFile] = File(None),
 ):
-    tipo_entrada = tipo_entrada.lower().strip()
-    benchmark_id_final, sample_id_final = _generar_identificadores_benchmark(
-        caso_id=caso_id,
-        benchmark_id=benchmark_id,
-        sample_id=sample_id,
-    )
-
-    if tipo_entrada != "texto":
-        raise HTTPException(status_code=400, detail="tipo_entrada debe ser 'texto'.")
-
-    texto_procesado = normalizar_texto(texto)
-    if not texto_procesado:
-        raise HTTPException(status_code=400, detail="Debes escribir texto.")
-
-    _registrar_respuesta_recibida(
-        caso_id=caso_id,
-        tipo_entrada="texto",
-        texto=texto_procesado,
-        benchmark_id=benchmark_id_final,
-        sample_id=sample_id_final,
-    )
-
     try:
-        from backend.services.benchmark_orchestrator import ejecutar_benchmark_dual
-
-        resultado = ejecutar_benchmark_dual(
+        resultado = await _evaluar_benchmark_base(
             caso_id=caso_id,
-            tipo_entrada_original="texto",
-            texto_procesado=texto_procesado,
-            benchmark_id=benchmark_id_final,
-            sample_id=sample_id_final,
+            tipo_entrada=tipo_entrada,
+            texto=texto,
+            benchmark_id=benchmark_id,
+            sample_id=sample_id,
+            archivo_audio=archivo_audio,
         )
+        return resultado
+    except Exception as error:
+        raise HTTPException(status_code=500, detail=str(error))
 
-        _guardar_resultado_benchmark(
+
+@app.post("/benchmark/evaluar-voz")
+async def evaluar_benchmark_voz(
+    caso_id: str = Form("caso_001"),
+    benchmark_id: Optional[str] = Form(None),
+    sample_id: Optional[str] = Form(None),
+    archivo_audio: UploadFile = File(...),
+):
+    try:
+        resultado = await _evaluar_benchmark_base(
             caso_id=caso_id,
-            benchmark_id=benchmark_id_final,
-            sample_id=sample_id_final,
-            pipeline="benchmark",
-            answer=texto_procesado,
-            resultado=resultado,
+            tipo_entrada="audio",
+            texto="",
+            benchmark_id=benchmark_id,
+            sample_id=sample_id,
+            archivo_audio=archivo_audio,
         )
-
         return resultado
     except Exception as error:
         raise HTTPException(status_code=500, detail=str(error))
@@ -730,10 +910,12 @@ def api_ragas_live(benchmark_id: Optional[str] = Query(None, min_length=1)):
 @app.get("/api/ragas/benchmark-daily")
 def api_ragas_benchmark_daily_start():
     from backend.services.benchmark_ragas_runner import start_daily_benchmark_job
+
     return start_daily_benchmark_job()
 
 
 @app.get("/api/ragas/benchmark-daily/{job_id}")
 def api_ragas_benchmark_daily_status(job_id: str):
     from backend.services.benchmark_ragas_runner import get_daily_benchmark_job
+
     return get_daily_benchmark_job(job_id)
