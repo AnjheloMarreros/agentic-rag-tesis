@@ -65,18 +65,42 @@ def _nivel_1_5(puntaje: float) -> str:
     return "Excelente"
 
 
+def _relevancia_total(evaluacion_semantica: dict[str, Any]) -> tuple[float, float]:
+    similitud_caso = _float_safe(evaluacion_semantica.get("similitud_caso", 0.0))
+    similitud_contexto = _float_safe(evaluacion_semantica.get("similitud_contexto", 0.0))
+    relevancia_lexica = _float_safe(evaluacion_semantica.get("indice_relevancia_lexica", 0.0))
+    relevancia_caso = _float_safe(evaluacion_semantica.get("indice_relevancia_caso", 0.0))
+    relevancia_total = max(relevancia_caso, similitud_caso, similitud_contexto, relevancia_lexica)
+    return relevancia_total, relevancia_lexica
+
+
+def _tope_por_desalineacion(relevancia_total: float, relevancia_lexica: float) -> float:
+    if relevancia_total < 0.10 and relevancia_lexica < 0.05:
+        return 15.0
+    if relevancia_total < 0.20 and relevancia_lexica < 0.08:
+        return 25.0
+    if relevancia_total < 0.30 and relevancia_lexica < 0.12:
+        return 35.0
+    if relevancia_total < 0.40 and relevancia_lexica < 0.15:
+        return 45.0
+    if relevancia_total < 0.50 and relevancia_lexica < 0.20:
+        return 55.0
+    if relevancia_total < 0.60 and relevancia_lexica < 0.25:
+        return 65.0
+    return 100.0
+
+
+def _aplicar_tope_desalineacion(puntaje_total: float, relevancia_total: float, relevancia_lexica: float) -> float:
+    return min(puntaje_total, _tope_por_desalineacion(relevancia_total, relevancia_lexica))
+
+
 def _construir_evaluacion_consolidada(
     evaluacion_rubrica: dict[str, Any],
     evaluacion_semantica: dict[str, Any],
 ) -> dict[str, Any]:
     puntaje_rubrica = _float_safe(evaluacion_rubrica.get("puntaje_total", 0.0))
     puntaje_semantico = _float_safe(evaluacion_semantica.get("puntaje_total", 0.0))
-    similitud_caso = _float_safe(evaluacion_semantica.get("similitud_caso", 0.0))
-    similitud_contexto = _float_safe(evaluacion_semantica.get("similitud_contexto", 0.0))
-    relevancia_lexica = _float_safe(evaluacion_semantica.get("indice_relevancia_lexica", 0.0))
-    relevancia_caso = _float_safe(evaluacion_semantica.get("indice_relevancia_caso", 0.0))
-
-    relevancia_total = max(relevancia_caso, similitud_caso, similitud_contexto, relevancia_lexica)
+    relevancia_total, relevancia_lexica = _relevancia_total(evaluacion_semantica)
     puntaje_relevancia = round(relevancia_total * 100.0, 1)
 
     puntaje_total = round(
@@ -84,17 +108,7 @@ def _construir_evaluacion_consolidada(
         1,
     )
 
-    if relevancia_lexica < 0.05 and relevancia_total < 0.50:
-        puntaje_total = min(puntaje_total, 10.0)
-    elif relevancia_lexica < 0.08 and relevancia_total < 0.55:
-        puntaje_total = min(puntaje_total, 20.0)
-    elif relevancia_lexica < 0.12 and relevancia_total < 0.62:
-        puntaje_total = min(puntaje_total, 30.0)
-    elif relevancia_lexica < 0.15 and relevancia_total < 0.70:
-        puntaje_total = min(puntaje_total, 40.0)
-    elif relevancia_lexica < 0.18 and relevancia_total < 0.78:
-        puntaje_total = min(puntaje_total, 50.0)
-
+    puntaje_total = _aplicar_tope_desalineacion(puntaje_total, relevancia_total, relevancia_lexica)
     puntaje_total = max(0.0, min(100.0, puntaje_total))
     nivel_global = _nivel_global(puntaje_total)
 
@@ -199,6 +213,9 @@ def _construir_resultado_final(
         evaluacion_semantica=evaluacion_semantica,
     )
 
+    relevancia_total, relevancia_lexica = _relevancia_total(evaluacion_semantica)
+    tope_desalineacion = _tope_por_desalineacion(relevancia_total, relevancia_lexica)
+
     texto_caso = " ".join(
         [
             caso.get("titulo", ""),
@@ -215,18 +232,16 @@ def _construir_resultado_final(
     ]
 
     puntaje_rubrica_visible = _float_safe(evaluacion_rubrica.get("puntaje_total", 0.0))
-    nivel_rubrica_visible = (
-        evaluacion_rubrica.get("nivel_global")
-        or _nivel_global(puntaje_rubrica_visible)
-    )
+    puntaje_visible_ajustado = min(puntaje_rubrica_visible, tope_desalineacion)
+    nivel_rubrica_visible = _nivel_global(puntaje_visible_ajustado)
 
     resumen_visible = (
-        f"Tu respuesta obtuvo {puntaje_rubrica_visible}% de coherencia argumentativa. "
+        f"Tu respuesta obtuvo {round(puntaje_visible_ajustado, 1)}% de coherencia argumentativa. "
         f"El nivel global es {nivel_rubrica_visible}."
     )
 
     evaluacion_visible = {
-        "puntaje_total": round(puntaje_rubrica_visible, 1),
+        "puntaje_total": round(puntaje_visible_ajustado, 1),
         "nivel_global": nivel_rubrica_visible,
         "resumen": resumen_visible,
         "puntaje_rubrica": round(puntaje_rubrica_visible, 1),
@@ -247,6 +262,16 @@ def _construir_resultado_final(
             retroalimentacion_visible["observaciones"].append(f"{nombre}: {item['observacion']}")
         if item.get("recomendacion"):
             retroalimentacion_visible["recomendaciones"].append(f"{nombre}: {item['recomendacion']}")
+
+    if tope_desalineacion < 100:
+        retroalimentacion_visible["observaciones"].insert(
+            0,
+            "La respuesta no está suficientemente alineada con el caso seleccionado.",
+        )
+        retroalimentacion_visible["recomendaciones"].insert(
+            0,
+            "Mantén la respuesta centrada en los hechos y la cuestión jurídica del caso.",
+        )
 
     resultado = {
         "caso_id": state["caso_id"],
@@ -317,6 +342,7 @@ def cargar_caso_node(state: EvaluacionState) -> EvaluacionState:
 def recuperar_contexto_node(state: EvaluacionState) -> EvaluacionState:
     caso = state["caso"]
     texto = state["texto_procesado"]
+    caso_id = state["caso_id"]
 
     consulta = (
         f"{caso.get('titulo', '')} "
@@ -326,7 +352,7 @@ def recuperar_contexto_node(state: EvaluacionState) -> EvaluacionState:
         f"{texto}"
     ).strip()
 
-    resultado = recuperar_contexto(consulta, 3)
+    resultado = recuperar_contexto(consulta, 3, case_id=caso_id)
 
     documentos = resultado.get("documents", [[]])
     metadatos = resultado.get("metadatas", [[]])
@@ -422,13 +448,19 @@ def ejecutar_evaluacion_langgraph(
     texto: str = "",
     benchmark_id: str = "",
     sample_id: str = "",
+    archivo_audio: Any = None,
 ):
-    if tipo_entrada.lower().strip() != "texto":
-        raise ValueError("Solo se admite tipo_entrada='texto'.")
+    tipo_normalizado = (tipo_entrada or "").lower().strip()
+
+    if tipo_normalizado not in ("texto", "audio"):
+        raise ValueError("Solo se admite tipo_entrada='texto' o 'audio'.")
+
+    if not texto:
+        raise ValueError("No se recibió texto válido para evaluar.")
 
     estado_inicial: EvaluacionState = {
         "caso_id": caso_id,
-        "tipo_entrada": "texto",
+        "tipo_entrada": tipo_normalizado,
         "texto": texto,
         "benchmark_id": benchmark_id,
         "sample_id": sample_id,
