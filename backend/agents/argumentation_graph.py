@@ -33,6 +33,9 @@ class EvaluacionState(TypedDict, total=False):
     retroalimentacion_interna: dict[str, Any]
     resultado_final: dict[str, Any]
 
+    # CHANGED: bandera para saber si el agente reforzó o no la recuperación.
+    refuerzo_contexto: bool
+
 
 def _float_safe(valor: Any, default: float = 0.0) -> float:
     try:
@@ -92,6 +95,55 @@ def _tope_por_desalineacion(relevancia_total: float, relevancia_lexica: float) -
 
 def _aplicar_tope_desalineacion(puntaje_total: float, relevancia_total: float, relevancia_lexica: float) -> float:
     return min(puntaje_total, _tope_por_desalineacion(relevancia_total, relevancia_lexica))
+
+
+def _extraer_fuentes_retrieval(resultado: dict[str, Any]) -> list[dict[str, Any]]:
+    # CHANGED: helper para no repetir el parseo del resultado de recuperación.
+    documentos = resultado.get("documents", [[]])
+    metadatos = resultado.get("metadatas", [[]])
+    distancias = resultado.get("distances", [[]])
+
+    docs = documentos[0] if documentos and len(documentos) > 0 else []
+    metas = metadatos[0] if metadatos and len(metadatos) > 0 else []
+    dists = distancias[0] if distancias and len(distancias) > 0 else []
+
+    fuentes: list[dict[str, Any]] = []
+    for i, doc in enumerate(docs):
+        fuentes.append(
+            {
+                "fragmento": doc,
+                "metadados": metas[i] if i < len(metas) else {},
+                "distancia": dists[i] if i < len(dists) else None,
+            }
+        )
+
+    return fuentes
+
+
+def _fusionar_contextos(
+    contexto_base: list[dict[str, Any]],
+    contexto_extra: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    # CHANGED: fusiona contexto sin duplicados para el refuerzo agéntico.
+    fusionado: list[dict[str, Any]] = []
+    vistos: set[str] = set()
+
+    for item in list(contexto_base) + list(contexto_extra):
+        if not isinstance(item, dict):
+            continue
+
+        fragmento = str(item.get("fragmento", "")).strip()
+        if not fragmento:
+            continue
+
+        clave = fragmento.lower()
+        if clave in vistos:
+            continue
+
+        vistos.add(clave)
+        fusionado.append(item)
+
+    return fusionado
 
 
 def _construir_evaluacion_consolidada(
@@ -293,6 +345,9 @@ def _construir_resultado_final(
         "retroalimentacion_visible": retroalimentacion_visible,
         "texto_caso": texto_caso,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+
+        # CHANGED: dejamos visible si el agente decidió reforzar contexto.
+        "refuerzo_contexto": state.get("refuerzo_contexto", False),
     }
 
     registrar_evento(
@@ -319,6 +374,9 @@ def _construir_resultado_final(
             "puntaje_total": evaluacion_consolidada.get("puntaje_total", 0.0),
             "puntaje_semantico": evaluacion_semantica.get("puntaje_total", 0.0),
             "fuentes_recuperadas": len(contexto_recuperado),
+
+            # CHANGED: trazabilidad del paso agéntico.
+            "refuerzo_contexto": state.get("refuerzo_contexto", False),
         },
     )
 
@@ -353,24 +411,7 @@ def recuperar_contexto_node(state: EvaluacionState) -> EvaluacionState:
     ).strip()
 
     resultado = recuperar_contexto(consulta, 3, case_id=caso_id)
-
-    documentos = resultado.get("documents", [[]])
-    metadatos = resultado.get("metadatas", [[]])
-    distancias = resultado.get("distances", [[]])
-
-    docs = documentos[0] if documentos and len(documentos) > 0 else []
-    metas = metadatos[0] if metadatos and len(metadatos) > 0 else []
-    dists = distancias[0] if distancias and len(distancias) > 0 else []
-
-    fuentes: list[dict[str, Any]] = []
-    for i, doc in enumerate(docs):
-        fuentes.append(
-            {
-                "fragmento": doc,
-                "metadatos": metas[i] if i < len(metas) else {},
-                "distancia": dists[i] if i < len(dists) else None,
-            }
-        )
+    fuentes = _extraer_fuentes_retrieval(resultado)
 
     return {"contexto_recuperado": fuentes}
 
@@ -387,6 +428,90 @@ def evaluar_semantica_node(state: EvaluacionState) -> EvaluacionState:
     )
 
     return {"evaluacion_semantica": evaluacion_semantica}
+
+
+def reforzar_contexto_node(state: EvaluacionState) -> EvaluacionState:
+    # CHANGED: este nodo introduce la parte agéntica.
+    # Si la pertinencia es baja, el flujo decide hacer una segunda recuperación
+    # usando el perfil jurídico del caso como guía.
+    caso = state["caso"]
+    texto = state.get("texto_procesado", "")
+    contexto_actual = state.get("contexto_recuperado", [])
+    evaluacion_semantica_actual = state.get("evaluacion_semantica", {})
+
+    relevancia_total = _float_safe(evaluacion_semantica_actual.get("indice_relevancia_caso", 0.0))
+    refuerzo = relevancia_total < 0.35
+
+    if not refuerzo:
+        registrar_evento(
+            "refuerzo_contexto_agentic",
+            {
+                "caso_id": state.get("caso_id", ""),
+                "benchmark_id": state.get("benchmark_id", ""),
+                "sample_id": state.get("sample_id", ""),
+                "refuerzo": False,
+                "indice_relevancia_caso": relevancia_total,
+                "motivo": "La pertinencia inicial fue suficiente; no se reforzó contexto.",
+            },
+        )
+        return {"refuerzo_contexto": False}
+
+    perfil = caso.get("perfil_juridico", {}) if isinstance(caso, dict) else {}
+    hechos = " ".join(perfil.get("hechos_clave", []) or [])
+    normas = " ".join(perfil.get("normas_clave", []) or [])
+    conceptos = " ".join(perfil.get("conceptos_esperados", []) or [])
+    tesis = " ".join(perfil.get("tesis_esperada", []) or [])
+
+    consulta_reforzada = " ".join(
+        part for part in [
+            caso.get("titulo", ""),
+            caso.get("enunciado", ""),
+            hechos,
+            normas,
+            conceptos,
+            tesis,
+            texto,
+        ]
+        if part
+    ).strip()
+
+    resultado_refuerzo = recuperar_contexto(consulta_reforzada, 3, case_id=state["caso_id"])
+    contexto_extra = _extraer_fuentes_retrieval(resultado_refuerzo)
+    contexto_total = _fusionar_contextos(contexto_actual, contexto_extra)
+
+    # CHANGED: recalculamos semántica con el contexto ampliado.
+    evaluacion_semantica_reforzada = evaluar_semantica(
+        respuesta=texto,
+        caso=caso,
+        contexto_recuperado=contexto_total,
+    )
+
+    registrar_evento(
+        "refuerzo_contexto_agentic",
+        {
+            "caso_id": state.get("caso_id", ""),
+            "benchmark_id": state.get("benchmark_id", ""),
+            "sample_id": state.get("sample_id", ""),
+            "refuerzo": True,
+            "indice_relevancia_caso_inicial": relevancia_total,
+            "indice_relevancia_caso_reforzado": _float_safe(
+                evaluacion_semantica_reforzada.get("indice_relevancia_caso", 0.0)
+            ),
+            "contextos_iniciales": len(contexto_actual),
+            "contextos_refuerzo": len(contexto_extra),
+            "contextos_totales": len(contexto_total),
+            "hechos_clave_usados": hechos,
+            "normas_clave_usadas": normas,
+            "conceptos_usados": conceptos,
+            "tesis_usada": tesis,
+        },
+    )
+
+    return {
+        "refuerzo_contexto": True,
+        "contexto_recuperado": contexto_total,
+        "evaluacion_semantica": evaluacion_semantica_reforzada,
+    }
 
 
 def evaluar_rubrica_node(state: EvaluacionState) -> EvaluacionState:
@@ -428,6 +553,10 @@ builder.add_node("procesar_entrada", procesar_entrada)
 builder.add_node("cargar_caso", cargar_caso_node)
 builder.add_node("recuperar_contexto", recuperar_contexto_node)
 builder.add_node("evaluar_semantica", evaluar_semantica_node)
+
+# CHANGED: nodo agéntico de decisión/refuerzo.
+builder.add_node("reforzar_contexto", reforzar_contexto_node)
+
 builder.add_node("evaluar_rubrica", evaluar_rubrica_node)
 builder.add_node("compilar_resultado", compilar_resultado_node)
 
@@ -435,7 +564,12 @@ builder.add_edge(START, "procesar_entrada")
 builder.add_edge("procesar_entrada", "cargar_caso")
 builder.add_edge("cargar_caso", "recuperar_contexto")
 builder.add_edge("recuperar_contexto", "evaluar_semantica")
-builder.add_edge("evaluar_semantica", "evaluar_rubrica")
+
+# CHANGED: el flujo pasa por una decisión adicional antes de consolidar.
+# Si no hace falta refuerzo, el nodo sale sin modificar el contexto.
+builder.add_edge("evaluar_semantica", "reforzar_contexto")
+
+builder.add_edge("reforzar_contexto", "evaluar_rubrica")
 builder.add_edge("evaluar_rubrica", "compilar_resultado")
 builder.add_edge("compilar_resultado", END)
 
