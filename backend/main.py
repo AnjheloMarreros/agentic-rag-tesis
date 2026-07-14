@@ -918,4 +918,4 @@ def api_ragas_benchmark_daily_start():
 def api_ragas_benchmark_daily_status(job_id: str):
     from backend.services.benchmark_ragas_runner import get_daily_benchmark_job
 
-    return get_daily_benchmark_job(job_id)
+    return get_daily_benchmark_job(job_id)#
