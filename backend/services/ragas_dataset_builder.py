@@ -20,9 +20,7 @@ DEFAULT_LOG_FILES = [
     BASE_DIR / "data" / "logs" / "langchain" / "eventos.jsonl",
 ]
 
-# CHANGED: agregamos benchmark_dual_ejecucion para poder reconstruir ambas muestras
-# desde una sola corrida comparativa, sin pedirle al alumno que responda dos veces.
-ALLOWED_EVENT_TYPES = {"evaluacion_langgraph", "evaluacion_langchain", "benchmark_dual_ejecucion"}
+ALLOWED_EVENT_TYPES = {"evaluacion_langgraph", "evaluacion_langchain"}
 
 
 def _normalize_text(value: Any) -> str:
@@ -163,88 +161,6 @@ def _build_user_input(payload: dict[str, Any]) -> str:
     return ""
 
 
-def _first_non_empty(*values: Any) -> str:
-    for value in values:
-        text = _normalize_text(value)
-        if text:
-            return text
-    return ""
-
-
-def _merge_payloads(*payloads: dict[str, Any]) -> dict[str, Any]:
-    # CHANGED: fusiona payloads sin perder información útil y sin reemplazar
-    # valores válidos por vacíos.
-    merged: dict[str, Any] = {}
-
-    for payload in payloads:
-        if not isinstance(payload, dict):
-            continue
-
-        for key, value in payload.items():
-            if value is None:
-                continue
-
-            if isinstance(value, str) and not value.strip():
-                continue
-
-            if isinstance(value, (list, tuple, dict)) and len(value) == 0:
-                continue
-
-            merged[key] = value
-
-    return merged
-
-
-def _expand_benchmark_dual_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    CHANGED:
-    Si el evento es benchmark_dual_ejecucion, extraemos dos payloads:
-    uno para langgraph y otro para langchain, reutilizando una sola entrada.
-    """
-    if _normalize_text(payload.get("pipeline")) != "benchmark" and _normalize_text(payload.get("event_type")) != "benchmark_dual_ejecucion":
-        return [payload]
-
-    benchmark_block = payload.get("benchmark")
-    comparative: dict[str, Any] = {}
-
-    if isinstance(benchmark_block, dict):
-        resultado_final = benchmark_block.get("resultado_final")
-        if isinstance(resultado_final, dict):
-            comparative = resultado_final.get("comparativa") or {}
-
-    # Fallbacks por si la estructura viene en otro lugar
-    if not comparative:
-        outer_result = payload.get("result")
-        if isinstance(outer_result, dict):
-            reports = outer_result.get("reports")
-            if isinstance(reports, dict):
-                comparative = reports
-
-    langgraph_payload = _merge_payloads(
-        payload,
-        comparative.get("langgraph", {}) if isinstance(comparative, dict) else {},
-        payload.get("langgraph", {}) if isinstance(payload.get("langgraph"), dict) else {},
-    )
-    langgraph_payload["pipeline"] = "langgraph"
-    langgraph_payload["source_event"] = "benchmark_dual_ejecucion"
-
-    langchain_payload = _merge_payloads(
-        payload,
-        comparative.get("langchain", {}) if isinstance(comparative, dict) else {},
-        payload.get("langchain", {}) if isinstance(payload.get("langchain"), dict) else {},
-    )
-    langchain_payload["pipeline"] = "langchain"
-    langchain_payload["source_event"] = "benchmark_dual_ejecucion"
-
-    expanded: list[dict[str, Any]] = []
-    if langgraph_payload:
-        expanded.append(langgraph_payload)
-    if langchain_payload:
-        expanded.append(langchain_payload)
-
-    return expanded or [payload]
-
-
 def _build_sample_from_payload(payload: dict[str, Any]) -> SingleTurnSample:
     user_input = _build_user_input(payload)
 
@@ -308,31 +224,23 @@ def build_dataset_from_logs(
         if not isinstance(payload, dict):
             continue
 
-        # CHANGED: si viene una corrida comparativa, la dividimos en dos muestras:
-        # una para LangGraph y otra para LangChain, usando la misma respuesta/entrada.
-        expanded_payloads = _expand_benchmark_dual_payload(payload)
+        user_input = _build_user_input(payload)
+        response = _normalize_text(
+            payload.get("response")
+            or payload.get("entrada")
+            or payload.get("texto_procesado")
+            or payload.get("entrada_estudiante")
+            or payload.get("texto")
+        )
+        retrieved_contexts = _normalize_list(
+            payload.get("retrieved_contexts")
+            or payload.get("contexto_recuperado")
+        )
 
-        for expanded in expanded_payloads:
-            if not isinstance(expanded, dict):
-                continue
+        if not user_input or not response or not retrieved_contexts:
+            continue
 
-            user_input = _build_user_input(expanded)
-            response = _normalize_text(
-                expanded.get("response")
-                or expanded.get("entrada")
-                or expanded.get("texto_procesado")
-                or expanded.get("entrada_estudiante")
-                or expanded.get("texto")
-            )
-            retrieved_contexts = _normalize_list(
-                expanded.get("retrieved_contexts")
-                or expanded.get("contexto_recuperado")
-            )
-
-            if not user_input or not response or not retrieved_contexts:
-                continue
-
-            samples.append(_build_sample_from_payload(expanded))
+        samples.append(_build_sample_from_payload(payload))
 
     if not samples:
         return EvaluationDataset(samples=[])
