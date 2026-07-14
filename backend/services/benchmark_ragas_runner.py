@@ -1,49 +1,50 @@
 from __future__ import annotations
 
+from csv import DictWriter
+from datetime import datetime, timezone
+from pathlib import Path
+from threading import Lock, Thread
+from typing import Any
 import json
 import os
-import traceback
-from datetime import datetime, timezone
-from math import isfinite
-from pathlib import Path
-from pprint import pformat
-from typing import Any
+from uuid import uuid4
 
-from dotenv import load_dotenv
+from ragas import evaluate
+from ragas.run_config import RunConfig
 
-from backend.services.ragas_dataset_builder import (
-    build_dataset_from_logs,
-    find_latest_benchmark_id,
-)
+try:
+    from ragas.dataset_schema import EvaluationDataset, SingleTurnSample
+except Exception:  # pragma: no cover
+    from ragas import EvaluationDataset, SingleTurnSample  # type: ignore
 
-# CHANGED: importamos el histórico para que el resultado de RAGAS quede visible
-# en /resultados?pipeline=ragas&format=json.
-from backend.services.result_store import append_result
+try:
+    from ragas.llms import LangchainLLMWrapper
+except Exception:  # pragma: no cover
+    from ragas.llms.base import LangchainLLMWrapper  # type: ignore
+
+try:
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+except Exception:  # pragma: no cover
+    from ragas.embeddings.base import LangchainEmbeddingsWrapper  # type: ignore
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(BASE_DIR / ".env")
-RESULTS_DIR = BASE_DIR / "data" / "evals" / "ragas_results"
 
+LOG_FILES = [
+    BASE_DIR / "logs" / "eventos.jsonl",
+    BASE_DIR / "data" / "logs" / "eventos.jsonl",
+    BASE_DIR / "data" / "logs" / "langgraph" / "eventos.jsonl",
+    BASE_DIR / "data" / "logs" / "langchain" / "eventos.jsonl",
+]
 
-def _env_flag(name: str, default: str = "0") -> bool:
-    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+OUTPUT_DIR = BASE_DIR / "data" / "evals" / "ragas_benchmark"
 
+PIPELINES = {
+    "langgraph": "evaluacion_langgraph",
+    "langchain": "evaluacion_langchain",
+}
 
-DEBUG_RAGAS = _env_flag("RAGAS_DEBUG", "0")
-
-
-def _debug_print(title: str, payload: Any | None = None) -> None:
-    if not DEBUG_RAGAS:
-        return
-
-    print(f"[RAGAS-DEBUG] {title}")
-    if payload is None:
-        return
-
-    try:
-        print(pformat(payload, width=140, sort_dicts=False))
-    except Exception:
-        print(str(payload))
+JOBS: dict[str, dict[str, Any]] = {}
+JOBS_LOCK = Lock()
 
 
 def _clean_jsonable(value: Any) -> Any:
@@ -58,14 +59,12 @@ def _clean_jsonable(value: Any) -> Any:
             numeric = float(value)
         except Exception:
             return value
-        return numeric if isfinite(numeric) else None
+        if numeric != numeric or numeric in (float("inf"), float("-inf")):
+            return None
+        return numeric
     if hasattr(value, "item"):
         try:
-            item = value.item()
-            if isinstance(item, (int, float)):
-                numeric = float(item)
-                return numeric if isfinite(numeric) else None
-            return item
+            return _clean_jsonable(value.item())
         except Exception:
             return value
     return value
@@ -78,7 +77,7 @@ def _to_float(value: Any) -> float | None:
         if isinstance(value, str) and not value.strip():
             return None
         numeric = float(value)
-        if not isfinite(numeric):
+        if numeric != numeric or numeric in (float("inf"), float("-inf")):
             return None
         return numeric
     except Exception:
@@ -94,108 +93,136 @@ def _mean_safe(values: list[Any]) -> float:
     return round(sum(nums) / len(nums), 4) if nums else 0.0
 
 
-def _dataset_samples(dataset: Any) -> list[Any]:
-    samples = getattr(dataset, "samples", None)
-    if samples is not None:
-        try:
-            return list(samples)
-        except Exception:
-            pass
-
-    try:
-        return list(dataset.to_list())  # type: ignore[attr-defined]
-    except Exception:
-        return []
+def _job_set(job_id: str, **updates: Any) -> None:
+    with JOBS_LOCK:
+        current = JOBS.get(job_id, {})
+        current.update(updates)
+        JOBS[job_id] = current
 
 
-def _sample_has_contexts(sample: Any) -> bool:
-    if isinstance(sample, dict):
-        return bool(sample.get("retrieved_contexts") or sample.get("contexto_recuperado"))
+def _load_jsonl(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not path.exists():
+        return rows
 
-    return bool(getattr(sample, "retrieved_contexts", None))
-
-
-def _sample_preview(sample: Any) -> dict[str, Any]:
-    if isinstance(sample, dict):
-        return {
-            "user_input": sample.get("user_input"),
-            "response": sample.get("response"),
-            "retrieved_contexts": sample.get("retrieved_contexts"),
-            "reference_contexts": sample.get("reference_contexts"),
-            "reference": sample.get("reference"),
-        }
-
-    preview: dict[str, Any] = {}
-    for attr in ("user_input", "response", "retrieved_contexts", "reference_contexts", "reference"):
-        if hasattr(sample, attr):
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            raw = line.strip()
+            if not raw:
+                continue
             try:
-                preview[attr] = getattr(sample, attr)
+                item = json.loads(raw)
             except Exception:
-                preview[attr] = "<unreadable>"
-    return preview
+                continue
+            if isinstance(item, dict):
+                rows.append(item)
+    return rows
+
+
+def _normalize_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    return str(value).strip()
+
+
+def _normalize_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        cleaned: list[str] = []
+        for item in value:
+            text = _normalize_text(item)
+            if text:
+                cleaned.append(text)
+        return cleaned
+    text = _normalize_text(value)
+    return [text] if text else []
+
+
+def _extract_payload(row: dict[str, Any]) -> dict[str, Any]:
+    data = row.get("datos", row)
+    return data if isinstance(data, dict) else {}
+
+
+def _iter_events(event_types: set[str] | None = None):
+    for path in LOG_FILES:
+        for row in _load_jsonl(path):
+            tipo = _normalize_text(row.get("tipo") or row.get("event_type") or row.get("event"))
+            payload = _extract_payload(row)
+
+            if not payload:
+                continue
+            if event_types and tipo not in event_types:
+                continue
+
+            pipeline = _normalize_text(payload.get("pipeline"))
+            if not pipeline:
+                if "langgraph" in tipo:
+                    pipeline = "langgraph"
+                elif "langchain" in tipo:
+                    pipeline = "langchain"
+
+            if not pipeline:
+                continue
+
+            yield {
+                "tipo": tipo,
+                "pipeline": pipeline,
+                "payload": payload,
+                "row": row,
+            }
 
 
 def _build_models():
-    groq_api_key = os.getenv("GROQ_API_KEY", "").strip()
-    groq_model = os.getenv("GROQ_MODEL", os.getenv("RAGAS_MODEL", "llama-3.3-70b-versatile")).strip()
-    embedding_model = os.getenv(
+    model_name = os.getenv("RAGAS_MODEL", "llama-3.3-70b-versatile").strip()
+    embedding_name = os.getenv(
         "RAGAS_EMBEDDING_MODEL",
-        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "sentence-transformers/all-MiniLM-L6-v2",
     ).strip()
 
-    if not groq_api_key:
+    from langchain_groq import ChatGroq
+
+    api_key = os.getenv("GROQ_API_KEY")
+    if not api_key:
         raise RuntimeError("No se encontró GROQ_API_KEY en el entorno.")
 
-    try:
-        from ragas.llms.base import LangchainLLMWrapper
-    except Exception:
-        from ragas.llms import LangchainLLMWrapper  # type: ignore
-
-    try:
-        from ragas.embeddings.base import LangchainEmbeddingsWrapper
-    except Exception:
-        from ragas.embeddings import LangchainEmbeddingsWrapper  # type: ignore
-
-    from langchain_groq import ChatGroq
-    from langchain_huggingface import HuggingFaceEmbeddings
-
     llm = ChatGroq(
-        model=groq_model,
-        api_key=groq_api_key,
+        model=model_name,
+        api_key=api_key,
         temperature=0,
     )
 
-    embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
+    try:
+        from langchain_huggingface import HuggingFaceEmbeddings
+    except Exception:
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+
+    embeddings = HuggingFaceEmbeddings(model_name=embedding_name)
 
     return LangchainLLMWrapper(llm), LangchainEmbeddingsWrapper(embeddings)
 
 
-def _build_metric_list(llm, embeddings, include_faithfulness: bool = True):
+def _build_metric_list(llm: Any, embeddings: Any):
     from ragas.metrics import Faithfulness, ResponseRelevancy
 
-    metrics = []
-    if include_faithfulness:
-        metrics.append(Faithfulness(llm=llm))
-
-    metrics.append(
+    return [
+        Faithfulness(llm=llm),
         ResponseRelevancy(
             llm=llm,
             embeddings=embeddings,
-            strictness=int(os.getenv("RAGAS_STRICTNESS", "1")),
-        )
-    )
-    return metrics
+            strictness=int(os.getenv("RAGAS_STRICTNESS", "3")),
+        ),
+    ]
 
 
 def _evaluate_dataset(dataset, metrics, llm, embeddings):
-    from ragas import evaluate
-    from ragas.run_config import RunConfig
-
     run_config = RunConfig(
         timeout=int(os.getenv("RAGAS_TIMEOUT", "180")),
         max_retries=int(os.getenv("RAGAS_MAX_RETRIES", "2")),
         max_wait=int(os.getenv("RAGAS_MAX_WAIT", "10")),
-        max_workers=int(os.getenv("RAGAS_MAX_WORKERS", "1")),
+        max_workers=1,
         seed=int(os.getenv("RAGAS_SEED", "42")),
     )
 
@@ -206,7 +233,7 @@ def _evaluate_dataset(dataset, metrics, llm, embeddings):
             llm=llm,
             embeddings=embeddings,
             show_progress=False,
-            raise_exceptions=DEBUG_RAGAS,
+            raise_exceptions=False,
             run_config=run_config,
         )
     except TypeError:
@@ -217,7 +244,7 @@ def _evaluate_dataset(dataset, metrics, llm, embeddings):
                 llm=llm,
                 embeddings=embeddings,
                 show_progress=False,
-                raise_exceptions=DEBUG_RAGAS,
+                raise_exceptions=False,
                 run_config=run_config,
             )
         except TypeError:
@@ -227,229 +254,337 @@ def _evaluate_dataset(dataset, metrics, llm, embeddings):
                 llm=llm,
                 embeddings=embeddings,
                 show_progress=False,
-                raise_exceptions=DEBUG_RAGAS,
+                raise_exceptions=False,
             )
+
+
+def _build_sample_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    user_input = _normalize_text(
+        payload.get("user_input")
+        or payload.get("entrada_estudiante")
+        or payload.get("texto_procesado")
+        or payload.get("question")
+        or payload.get("entrada")
+        or payload.get("input")
+    )
+
+    response = _normalize_text(
+        payload.get("response")
+        or payload.get("respuesta")
+        or payload.get("texto_respuesta")
+        or payload.get("answer")
+    )
+
+    retrieved_contexts = _normalize_list(
+        payload.get("retrieved_contexts")
+        or payload.get("contexto_recuperado")
+    )
+
+    reference_contexts = _normalize_list(
+        payload.get("reference_contexts")
+        or payload.get("reference_context")
+        or payload.get("contexto_referencia")
+    )
+
+    reference = _normalize_text(
+        payload.get("reference")
+        or payload.get("reference_answer")
+        or payload.get("respuesta_referencia")
+    )
+
+    sample_id = _normalize_text(payload.get("sample_id"))
+    benchmark_id = _normalize_text(payload.get("benchmark_id"))
+
+    return {
+        "user_input": user_input,
+        "response": response,
+        "retrieved_contexts": retrieved_contexts,
+        "reference_contexts": reference_contexts,
+        "reference": reference,
+        "sample_id": sample_id,
+        "benchmark_id": benchmark_id,
+    }
+
+
+def _make_dataset_one(sample_kwargs: dict[str, Any]):
+    ragas_kwargs: dict[str, Any] = {
+        "user_input": sample_kwargs["user_input"],
+        "response": sample_kwargs["response"],
+        "retrieved_contexts": sample_kwargs["retrieved_contexts"],
+    }
+
+    if sample_kwargs.get("reference_contexts"):
+        ragas_kwargs["reference_contexts"] = sample_kwargs["reference_contexts"]
+    if sample_kwargs.get("reference"):
+        ragas_kwargs["reference"] = sample_kwargs["reference"]
+
+    sample = SingleTurnSample(**ragas_kwargs)
+
+    try:
+        return EvaluationDataset(samples=[sample])
+    except Exception:
+        return EvaluationDataset.from_list([sample])  # type: ignore[attr-defined]
+
+
+def _safe_evaluate_sample(sample_payload: dict[str, Any], metrics, llm, embeddings) -> dict[str, Any]:
+    try:
+        if not sample_payload.get("user_input") or not sample_payload.get("response"):
+            return {
+                "ok": False,
+                "error": "missing_user_input_or_response",
+                **sample_payload,
+            }
+
+        dataset = _make_dataset_one(sample_payload)
+        result = _evaluate_dataset(dataset, metrics, llm, embeddings)
+        df = result.to_pandas()
+
+        if df.empty:
+            return {
+                "ok": False,
+                "error": "empty_result",
+                **sample_payload,
+            }
+
+        row = df.iloc[0].to_dict()
+        row.update(sample_payload)
+        row["ok"] = True
+        return _clean_jsonable(row)
+
+    except Exception as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+            **sample_payload,
+        }
+
+
+def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            writer = DictWriter(f, fieldnames=["ok"])
+            writer.writeheader()
+        return
+
+    fieldnames: list[str] = []
+    for row in rows:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
+
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(_clean_jsonable(row))
+
+
+def _summarize_rows(rows: list[dict[str, Any]]) -> dict[str, float]:
+    return {
+        "faithfulness": _mean_safe([row.get("faithfulness") for row in rows]),
+        "answer_relevancy": _mean_safe([row.get("answer_relevancy") for row in rows]),
+    }
 
 
 def _empty_report(
     *,
+    pipeline_name: str,
+    event_type: str,
     status: str,
-    benchmark_id: str | None,
     message: str,
-    detail: str,
-    input_samples: int = 0,
-    num_samples: int = 0,
+    num_failed: int = 0,
+    failed_rows: list[dict[str, Any]] | None = None,
+    rows: list[dict[str, Any]] | None = None,
+    output_csv: str | None = None,
 ) -> dict[str, Any]:
     return {
         "ok": False,
         "status": status,
-        "provider": "groq",
-        "benchmark_id_used": benchmark_id,
-        "message": message,
-        "detail": detail,
+        "pipeline": pipeline_name,
+        "event_type": event_type,
         "summary": {},
-        "num_samples": num_samples,
-        "input_samples": input_samples,
-        "rows": [],
-        "output_csv": None,
+        "num_samples": 0,
+        "num_failed": num_failed,
+        "failed_rows": failed_rows or [],
+        "rows": rows or [],
+        "output_csv": output_csv,
+        "message": message,
     }
 
 
-def _persist_ragas_report(report: dict[str, Any]) -> None:
-    # CHANGED: guardamos el resultado final para que /resultados?pipeline=ragas
-    # pueda mostrar el reporte sin hacerlo manualmente.
-    try:
-        summary = report.get("summary") or {}
-        if not isinstance(summary, dict):
-            summary = {}
+def _run_one_pipeline(
+    pipeline_name: str,
+    event_type: str,
+    llm: Any,
+    embeddings: Any,
+    out_dir: Path,
+) -> dict[str, Any]:
+    pipeline_dir = out_dir / pipeline_name
+    pipeline_dir.mkdir(parents=True, exist_ok=True)
 
-        registro = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "case_id": "",
-            "caso_id": "",
-            "benchmark_id": report.get("benchmark_id_used", "") or "",
-            "sample_id": "",
-            "pipeline": "ragas",
-            "status": report.get("status", ""),
-            "provider": report.get("provider", ""),
-            "metrics_used": report.get("metrics_used", []),
-            "num_samples": report.get("num_samples"),
-            "input_samples": report.get("input_samples"),
-            "has_retrieved_contexts": report.get("has_retrieved_contexts"),
-            "faithfulness": summary.get("faithfulness"),
-            "answer_relevancy": summary.get("answer_relevancy"),
-            "summary": summary,
-            "rows": report.get("rows", []),
-            "output_csv": report.get("output_csv"),
-            "response_json": report,
-        }
+    candidates: list[dict[str, Any]] = []
+    for item in _iter_events(event_types={event_type}):
+        if item["pipeline"] != pipeline_name:
+            continue
+        candidates.append(_build_sample_from_payload(item["payload"]))
 
-        append_result(registro)
-    except Exception:
-        # No rompemos el benchmark si el histórico falla.
-        pass
-
-
-def run_ragas_live_evaluation(benchmark_id: str | None = None) -> dict[str, Any]:
-    selected_benchmark_id = benchmark_id or find_latest_benchmark_id()
-
-    _debug_print("selected_benchmark_id", selected_benchmark_id)
-
-    dataset = build_dataset_from_logs(benchmark_id=selected_benchmark_id)
-    samples = _dataset_samples(dataset)
-
-    _debug_print("samples_loaded", len(samples))
-    if DEBUG_RAGAS:
-        for i, sample in enumerate(samples[:5], start=1):
-            _debug_print(f"sample_preview_{i}", _sample_preview(sample))
-
-    if not samples:
-        return _empty_report(
+    if not candidates:
+        report = _empty_report(
+            pipeline_name=pipeline_name,
+            event_type=event_type,
             status="empty_dataset",
-            benchmark_id=selected_benchmark_id,
-            message=(
-                "No se encontraron registros compatibles para RAGAS. "
-                "El dataset quedó vacío porque no hubo eventos válidos para la corrida seleccionada."
-            ),
-            detail="build_dataset_from_logs() devolvió 0 muestras.",
+            message="No se encontraron eventos válidos para esta corrida.",
         )
 
-    include_faithfulness = any(_sample_has_contexts(sample) for sample in samples)
-    _debug_print("has_retrieved_contexts", include_faithfulness)
+        with open(pipeline_dir / f"{pipeline_name}_benchmark.json", "w", encoding="utf-8") as f:
+            json.dump(_clean_jsonable(report), f, ensure_ascii=False, indent=2, allow_nan=False)
 
-    llm, embeddings = _build_models()
+        return report
 
-    print("=" * 60)
-    print("BENCHMARK_ID =", selected_benchmark_id)
-    print("GROQ_MODEL =", os.getenv("GROQ_MODEL") or os.getenv("RAGAS_MODEL"))
-    print("LLM =", type(llm))
-    print("EMBEDDINGS =", type(embeddings))
-    print("SAMPLES =", len(samples))
-    print("HAS_CONTEXTS =", include_faithfulness)
-    print("RAGAS_DEBUG =", DEBUG_RAGAS)
-    print("=" * 60)
+    metrics = _build_metric_list(llm, embeddings)
 
-    metrics = _build_metric_list(llm, embeddings, include_faithfulness=include_faithfulness)
-    _debug_print("metrics_used", [metric.__class__.__name__ for metric in metrics])
+    rows: list[dict[str, Any]] = []
+    failed: list[dict[str, Any]] = []
 
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    for sample_payload in candidates:
+        row = _safe_evaluate_sample(sample_payload, metrics, llm, embeddings)
+        if row.get("ok"):
+            rows.append(row)
+        else:
+            failed.append(row)
 
-    try:
-        result = _evaluate_dataset(dataset, metrics, llm, embeddings)
-    except Exception as exc:
-        print("[RAGAS-ERROR] evaluate() falló")
-        print(f"[RAGAS-ERROR] benchmark_id={selected_benchmark_id}")
-        print(f"[RAGAS-ERROR] type={type(exc).__name__}")
-        print(f"[RAGAS-ERROR] message={exc}")
-        print(traceback.format_exc())
-
-        message = str(exc).lower()
-        if "resource_exhausted" in message or "quota" in message or "429" in message:
-            return _empty_report(
-                status="quota_exhausted",
-                benchmark_id=selected_benchmark_id,
-                message=(
-                    "El proveedor de LLM no tiene cuota disponible para continuar "
-                    "con la evaluación RAGAS en este momento."
-                ),
-                detail=str(exc),
-                input_samples=len(samples),
-            )
-
-        if DEBUG_RAGAS:
-            raise
-
-        return _empty_report(
-            status="evaluation_error",
-            benchmark_id=selected_benchmark_id,
-            message="RAGAS falló durante la evaluación.",
-            detail=str(exc),
-            input_samples=len(samples),
+    if not rows:
+        report = _empty_report(
+            pipeline_name=pipeline_name,
+            event_type=event_type,
+            status="no_valid_rows",
+            message="No se pudieron evaluar filas válidas para esta corrida.",
+            num_failed=len(failed),
+            failed_rows=failed,
         )
 
-    try:
-        df = result.to_pandas()
-    except Exception as exc:
-        print("[RAGAS-ERROR] to_pandas() falló")
-        print(f"[RAGAS-ERROR] benchmark_id={selected_benchmark_id}")
-        print(f"[RAGAS-ERROR] type={type(exc).__name__}")
-        print(f"[RAGAS-ERROR] message={exc}")
-        print(traceback.format_exc())
+        with open(pipeline_dir / f"{pipeline_name}_benchmark.json", "w", encoding="utf-8") as f:
+            json.dump(_clean_jsonable(report), f, ensure_ascii=False, indent=2, allow_nan=False)
 
-        if DEBUG_RAGAS:
-            raise
+        return report
 
-        return _empty_report(
-            status="result_to_dataframe_error",
-            benchmark_id=selected_benchmark_id,
-            message="RAGAS devolvió un resultado que no pudo convertirse a tabla.",
-            detail=str(exc),
-            input_samples=len(samples),
-        )
+    summary = _summarize_rows(rows)
 
-    if DEBUG_RAGAS:
-        _debug_print("df_columns", list(df.columns))
-        _debug_print("df_head", df.head(5).to_dict(orient="records"))
-
-    if df.empty:
-        return _empty_report(
-            status="empty_result",
-            benchmark_id=selected_benchmark_id,
-            message="RAGAS devolvió un resultado vacío.",
-            detail="to_pandas() produjo un DataFrame vacío.",
-            input_samples=len(samples),
-        )
-
-    output_csv = RESULTS_DIR / "ragas_latest.csv"
-    df.to_csv(output_csv, index=False)
-
-    summary: dict[str, float] = {}
-    metric_columns = {
-        "faithfulness": ("faithfulness",),
-        "answer_relevancy": ("answer_relevancy", "response_relevancy"),
-    }
-
-    for key, candidates in metric_columns.items():
-        summary[key] = 0.0
-        for col in candidates:
-            if col in df.columns:
-                summary[key] = _mean_safe(df[col].tolist())
-                break
-
-    if not include_faithfulness:
-        summary["faithfulness"] = 0.0
-
-    cumple_objetivo_general = (
-        summary.get("faithfulness", 0.0) >= 0.85
-        and summary.get("answer_relevancy", 0.0) >= 0.80
-    )
+    output_csv = pipeline_dir / f"{pipeline_name}_benchmark.csv"
+    _write_csv(output_csv, rows)
 
     report = {
         "ok": True,
-        "status": "completed" if include_faithfulness else "completed_without_faithfulness",
-        "provider": "groq",
-        "benchmark_id_used": selected_benchmark_id,
-        "metrics_used": ["faithfulness", "answer_relevancy"] if include_faithfulness else ["answer_relevancy"],
+        "status": "completed",
+        "pipeline": pipeline_name,
+        "event_type": event_type,
         "summary": summary,
-        "cumple_objetivo_general": cumple_objetivo_general,
-        "num_samples": int(len(df)),
-        "input_samples": int(len(samples)),
-        "has_retrieved_contexts": include_faithfulness,
+        "num_samples": int(len(rows)),
+        "num_failed": int(len(failed)),
+        "failed_rows": failed,
         "output_csv": str(output_csv),
-        "rows": df.to_dict(orient="records"),
+        "rows": rows,
     }
 
     report = _clean_jsonable(report)
 
-    for metric_name, metric_value in report["summary"].items():
-        if metric_value is None:
-            report["summary"][metric_name] = 0.0
-
-    output_json = RESULTS_DIR / "ragas_latest.json"
-    with open(output_json, "w", encoding="utf-8") as f:
+    with open(pipeline_dir / f"{pipeline_name}_benchmark.json", "w", encoding="utf-8") as f:
         json.dump(report, f, ensure_ascii=False, indent=2, allow_nan=False)
 
-    # CHANGED: persistimos también la corrida en el histórico consultable.
-    _persist_ragas_report(report)
-
     return report
+
+
+def run_daily_benchmark_ragas_reports() -> dict[str, Any]:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    batch_dir = OUTPUT_DIR / timestamp
+    batch_dir.mkdir(parents=True, exist_ok=True)
+
+    llm, embeddings = _build_models()
+
+    reports: dict[str, Any] = {}
+    for pipeline_name, event_type in PIPELINES.items():
+        reports[pipeline_name] = _run_one_pipeline(
+            pipeline_name=pipeline_name,
+            event_type=event_type,
+            llm=llm,
+            embeddings=embeddings,
+            out_dir=batch_dir,
+        )
+
+    comparison = {
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "output_dir": str(batch_dir),
+        "reports": reports,
+        "delta": {},
+    }
+
+    langgraph_summary = reports.get("langgraph", {}).get("summary", {}) or {}
+    langchain_summary = reports.get("langchain", {}).get("summary", {}) or {}
+
+    for metric in ("faithfulness", "answer_relevancy"):
+        g = float(langgraph_summary.get(metric, 0.0) or 0.0)
+        c = float(langchain_summary.get(metric, 0.0) or 0.0)
+        comparison["delta"][metric] = round(g - c, 4)
+
+    comparison_path = batch_dir / "comparison_benchmark.json"
+    with open(comparison_path, "w", encoding="utf-8") as f:
+        json.dump(_clean_jsonable(comparison), f, ensure_ascii=False, indent=2, allow_nan=False)
+
+    summary_csv = batch_dir / "comparison_benchmark.csv"
+    with open(summary_csv, "w", newline="", encoding="utf-8") as f:
+        writer = DictWriter(f, fieldnames=["pipeline", "metric", "value"])
+        writer.writeheader()
+        for pipeline_name in ("langgraph", "langchain"):
+            summary = reports.get(pipeline_name, {}).get("summary", {}) or {}
+            for metric in ("faithfulness", "answer_relevancy"):
+                writer.writerow(
+                    {
+                        "pipeline": pipeline_name,
+                        "metric": metric,
+                        "value": summary.get(metric, 0.0),
+                    }
+                )
+
+    return comparison
+
+
+def _run_daily_job(job_id: str) -> None:
+    _job_set(job_id, status="running", started_at=datetime.now(timezone.utc).isoformat())
+    try:
+        result = run_daily_benchmark_ragas_reports()
+        _job_set(
+            job_id,
+            status="completed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            result=result,
+        )
+    except Exception as exc:
+        _job_set(
+            job_id,
+            status="failed",
+            finished_at=datetime.now(timezone.utc).isoformat(),
+            error=str(exc),
+        )
+
+
+def start_daily_benchmark_job() -> dict[str, Any]:
+    job_id = uuid4().hex
+    _job_set(job_id, status="queued", created_at=datetime.now(timezone.utc).isoformat())
+    Thread(target=_run_daily_job, args=(job_id,), daemon=True).start()
+    return {"ok": True, "job_id": job_id, "status": "queued"}
+
+
+def get_daily_benchmark_job(job_id: str) -> dict[str, Any]:
+    with JOBS_LOCK:
+        return JOBS.get(job_id, {"ok": False, "status": "not_found", "job_id": job_id})
+
+
+def main() -> int:
+    result = run_daily_benchmark_ragas_reports()
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
